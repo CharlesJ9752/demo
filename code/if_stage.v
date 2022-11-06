@@ -17,12 +17,6 @@ module if_stage(
     output                          fs_to_ds_valid ,
     output [`FS_TO_DS_BUS_WD -1:0]  fs_to_ds_bus   ,
     // inst sram interface
-    output                          inst_sram_req    ,
-    output                          inst_sram_wr     ,
-    output [ 1:0]                   inst_sram_size   ,
-    output [31:0]                   inst_sram_addr   ,
-    output [ 3:0]                   inst_sram_wstrb  ,
-    output [31:0]                   inst_sram_wdata  ,
     input                           inst_sram_addr_ok,
     input                           inst_sram_data_ok,
     input  [31:0]                   inst_sram_rdata,
@@ -36,6 +30,8 @@ module if_stage(
     reg        wb_exc_r;
     reg        wb_ertn_r;
 
+    reg        wrong_inst_counter;
+
     reg         fs_valid;
     wire        fs_ready_go;
 
@@ -45,11 +41,9 @@ module if_stage(
     wire [ 31:0] br_target;
     assign {br_taken, br_taken_cancel, br_stall, br_target} = br_bus;
 
-    wire                           pfs_inst_valid;
-    wire [31                   :0] pfs_inst;
     wire [31                   :0] pfs_pc;
     reg  [`PFS_TO_FS_BUS_WD - 1:0] pfs_to_fs_bus_r;
-    assign {pfs_inst_valid, pfs_inst, pfs_pc} = pfs_to_fs_bus_r;
+    assign pfs_pc = pfs_to_fs_bus_r;
 
     wire [31:0] fs_inst;
     wire  [31:0] fs_pc;
@@ -63,12 +57,15 @@ module if_stage(
     reg        fs_inst_valid;
     reg [31:0] fs_inst_buff;
 
-    reg fs_inst_cancel;
+    wire fs_inst_cancel;
+
+    assign fs_inst_cancel = (wb_exc || wb_ertn || wb_ertn_r || wb_exc_r);
 
     // IF stage
-    assign fs_ready_go    = pfs_inst_valid || fs_inst_valid || (fs_valid && inst_sram_data_ok);
+    assign fs_ready_go    = fs_inst_valid || (fs_valid && inst_sram_data_ok);
     assign fs_allowin     = !fs_valid || fs_ready_go && ds_allowin;
-    assign fs_to_ds_valid =  fs_valid && fs_ready_go && ~(br_taken && ~br_stall) && ~(wb_ertn | wb_exc) && ~fs_inst_cancel;
+    assign fs_to_ds_valid =  fs_valid && fs_ready_go && ~(br_taken && ~br_stall) && ~fs_inst_cancel;
+
 
     always @(posedge clk) begin
         if (reset) begin
@@ -79,7 +76,7 @@ module if_stage(
         end
     end
 
-    assign fs_block = !fs_valid || fs_inst_valid || pfs_inst_valid;
+    assign fs_block = !fs_valid || fs_inst_valid;
 
     always @(posedge clk ) begin
         if(reset) begin
@@ -109,36 +106,23 @@ module if_stage(
         end
     end
 
-    //inst_cancel
-    always @(posedge clk ) begin
-        if(reset) begin
-            fs_inst_cancel <= 1'b0;
-        end
-        else if(!fs_allowin && !fs_ready_go && ((wb_ertn | wb_exc) ||( br_taken && ~br_stall))) begin
-            fs_inst_cancel <= 1'b1;
-        end
-        else if(inst_sram_data_ok) begin
-            fs_inst_cancel <= 1'b0;
-        end
-    end
-
 
     always @(posedge clk) begin
         if (reset) begin
-            wb_exc_r <= 1'b0;
-            wb_ertn_r <= 1'b0;
-        end else if (fs_ready_go && ds_allowin)begin
             wb_exc_r <= 1'b0;
             wb_ertn_r <= 1'b0;
         end else if (wb_exc) begin
             wb_exc_r <= 1'b1;
         end else if (wb_ertn) begin
             wb_ertn_r <= 1'b1;
-        end
+        end else if (fs_allowin && pfs_to_fs_valid)begin
+            wb_exc_r <= 1'b0;
+            wb_ertn_r <= 1'b0;
+        end 
     end
 
     assign fs_pc = pfs_pc;
-    assign fs_inst = pfs_inst_valid ? pfs_inst : fs_inst_valid ? fs_inst_buff : inst_sram_rdata;
+    assign fs_inst = fs_inst_valid ? fs_inst_buff : inst_sram_rdata;
 
     assign fs_exc_flgs[`EXC_FLG_ADEF] = |fs_pc[1:0];
     // init other exc to 0 by default

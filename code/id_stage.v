@@ -296,7 +296,7 @@ assign ds_to_es_bus = {
 // with blk
 assign ds_ready_go    = ~(es_blk | ms_blk | csr_blk);
 assign ds_allowin     = !ds_valid || ds_ready_go && es_allowin;
-assign ds_to_es_valid = ds_valid & ds_ready_go;
+assign ds_to_es_valid = ds_valid & ds_ready_go && ~(wb_ertn || wb_exc || wb_ertn_r || wb_exc_r);
 
 always @(posedge clk) begin
     if (reset) begin
@@ -325,7 +325,7 @@ always @(posedge clk) begin
         wb_exc_r <= 1'b1;
     end else if (wb_ertn) begin
         wb_ertn_r <= 1'b1;
-    end else if (ds_valid & ds_ready_go & es_allowin)begin
+    end else if (fs_to_ds_valid & ds_allowin)begin
         wb_exc_r <= 1'b0;
         wb_ertn_r <= 1'b0;
     end

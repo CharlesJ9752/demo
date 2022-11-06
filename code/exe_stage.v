@@ -24,14 +24,13 @@ module exe_stage(
     // blk bus to id
     output [`ES_FWD_BLK_BUS_WD-1:0] es_fwd_blk_bus,
     // mul pipe res for MEM
-    output [64:0] es_mul_res_bus,
-    output [63:0] es_div_res_bus,
-    output        div_ms_go,
-    output        div_finish,
+    output [64:0]                   es_mul_res_bus,
+    output [63:0]                   es_div_res_bus,
+    output                          div_finish,
 
-    input wb_exc,
-    input wb_ertn,
-    input ms_to_es_ls_cancel,
+    input                           wb_exc,
+    input                           wb_ertn,
+    input                           ms_to_es_ls_cancel,
 
     output [`ES_CSR_BLK_BUS_WD-1:0] es_csr_blk_bus
 );
@@ -149,7 +148,9 @@ always @(posedge clk) begin
         es_valid <= ds_to_es_valid;
     end
 
-    if (ds_to_es_valid && es_allowin) begin
+    if(reset) begin
+        ds_to_es_bus_r <= `DS_TO_ES_BUS_WD'b0;
+    end else if (ds_to_es_valid && es_allowin) begin
         ds_to_es_bus_r <= ds_to_es_bus;
     end
 
@@ -193,7 +194,6 @@ alu u_alu(
     .is_div     (is_div         ),
     .div_res_sel(div_res_sel    ),
     .div_es_go  (div_es_go      ),
-    .div_ms_go  (div_ms_go      ),
     .div_finish (div_finish     ),
     .mul_res_bus(es_mul_res_bus ),
     .div_res_bus(es_div_res_bus )

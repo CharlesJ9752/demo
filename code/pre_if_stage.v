@@ -60,7 +60,7 @@ module pre_if_stage (
     reg inst_cancel;
 
     //control signals
-    assign pfs_ready_go = (inst_sram_addr_ok && inst_sram_req) || inst_sram_addr_ok_r && ~(wb_ertn | wb_exc);
+    assign pfs_ready_go = (inst_sram_addr_ok && inst_sram_req) || inst_sram_addr_ok_r && ~(wb_ertn_r || wb_exc_r);
     assign pfs_to_fs_valid = pfs_valid && pfs_ready_go;
     always @(posedge clk) begin
         if (reset  ) begin
@@ -72,10 +72,7 @@ module pre_if_stage (
     end
 
     //to fs
-    assign pfs_to_fs_bus = {inst_sram_data_ok && fs_block ? 1'b1 : inst_sram_data_ok_r,//64:64
-                            inst_sram_data_ok && fs_block? inst_sram_rdata : inst_buff,          //63:32
-                            nextpc              //31:0
-                           };
+    assign pfs_to_fs_bus = nextpc;
 
     //inst_sram
     always @(posedge clk) begin
@@ -140,17 +137,17 @@ module pre_if_stage (
             wb_ertn_r <= 1'b0;
             exc_entry_r <= 32'b0;
             exc_retaddr_r <= 32'b0;
-        end else if (pfs_ready_go && fs_allowin)begin
-            wb_exc_r <= 1'b0;
-            wb_ertn_r <= 1'b0;
-            exc_entry_r <= 32'b0;
-            exc_retaddr_r <= 32'b0;
         end else if (wb_exc) begin
             wb_exc_r <= 1'b1;
             exc_entry_r <= exc_entry;
         end else if (wb_ertn) begin
             wb_ertn_r <= 1'b1;
             exc_retaddr_r <= exc_retaddr;
+        end else if (inst_sram_addr_ok && fs_allowin)begin
+            wb_exc_r <= 1'b0;
+            wb_ertn_r <= 1'b0;
+            exc_entry_r <= 32'b0;
+            exc_retaddr_r <= 32'b0;
         end
     end
     
