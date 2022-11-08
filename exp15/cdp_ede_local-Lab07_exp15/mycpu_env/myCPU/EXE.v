@@ -86,7 +86,10 @@ module EXE (
     end
 //主bus连接
     always @(posedge clk ) begin
-        if (id_exe_valid & exe_allowin) begin
+        if(~resetn)begin
+            id_exe_bus_vld <= `ID_EXE_BUS_WDTH'b0;
+        end
+        else if (id_exe_valid & exe_allowin) begin
             id_exe_bus_vld <= id_exe_bus; 
         end
     end

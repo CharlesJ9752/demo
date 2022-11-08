@@ -51,21 +51,21 @@ module csr(
         else if (csr_we && csr_waddr==`CSR_CRMD)
             csr_crmd_ie <= csr_wmask[`CSR_CRMD_PIE]&csr_wdata[`CSR_CRMD_PIE]| ~csr_wmask[`CSR_CRMD_PIE]&csr_crmd_ie;
     end
-    //CRMD-DA
-    always @(posedge clk) begin
-        if (ertn_flush&&csr_estat_ecode==6'h3f)
-            csr_crmd_da <= 1'b0;
-        else 
-            csr_crmd_da <= 1'b1;
-    end
-    //CRMD-PG
-    always @(posedge clk) begin
-        if (ertn_flush&&csr_estat_ecode==6'h3f)
-            csr_crmd_pg <= 1'b1;
-        else 
-            csr_crmd_pg <= 1'b0;
-    end
-    assign  csr_crmd_rdata = {27'b0, csr_crmd_pg, csr_crmd_da, csr_crmd_ie, csr_crmd_plv};
+    // //CRMD-DA
+    // always @(posedge clk) begin
+    //     if (ertn_flush&&csr_estat_ecode==6'h3f)
+    //         csr_crmd_da <= 1'b0;
+    //     else 
+    //         csr_crmd_da <= 1'b1;
+    // end
+    // //CRMD-PG
+    // always @(posedge clk) begin
+    //     if (ertn_flush&&csr_estat_ecode==6'h3f)
+    //         csr_crmd_pg <= 1'b1;
+    //     else 
+    //         csr_crmd_pg <= 1'b0;
+    // end
+    assign  csr_crmd_rdata = {28'b0, 1'b1, csr_crmd_ie, csr_crmd_plv};
 
 
     //PRMD
@@ -74,7 +74,11 @@ module csr(
     wire    [31:0]  csr_prmd_rdata;
     //PRMD-PPLV,PIE
     always @(posedge clk) begin
-        if (wb_exc) begin
+        if(~resetn)begin
+            csr_prmd_pie<=1'b0;
+            csr_prmd_pplv<=2'b0;
+        end
+        else if (wb_exc) begin
             csr_prmd_pplv <= csr_crmd_plv;
             csr_prmd_pie <= csr_crmd_ie;
         end
@@ -113,7 +117,11 @@ module csr(
             | ~csr_wmask[`CSR_ESTAT_IS10]&csr_estat_is[1:0];
         csr_estat_is[9:2] <= 8'b0;//hwint=0
         csr_estat_is[10] <= 1'b0;//eternal 0
-        if (csr_tcfg_en & timer_cnt == 32'b0) begin
+        csr_estat_is[12] <= 1'b0;//ipiint=0
+        if(~resetn)begin
+            csr_estat_is[11] <= 1'b0;
+        end
+        else if (csr_tcfg_en & timer_cnt == 32'b0) begin
             csr_estat_is[11] <= 1'b1;
         end
         else if (csr_we && csr_waddr == `CSR_TICLR    &&
@@ -121,10 +129,13 @@ module csr(
                                csr_wdata[`CSR_TICLR_CLR]) begin
             csr_estat_is[11] <= 1'b0;//软件通过向CLR写1来将estatis第十一位清零
         end
-        csr_estat_is[12] <= 1'b0;//ipiint=0
     end
     always @(posedge clk) begin
-        if (wb_exc) begin
+        if(~resetn)begin
+            csr_estat_ecode <= 6'b0;
+            csr_estat_esubcode <= 9'b0;
+        end
+        else if (wb_exc) begin
             csr_estat_ecode <= wb_ecode;
             csr_estat_esubcode <= wb_esubcode;
         end
@@ -138,7 +149,10 @@ module csr(
     wire    [31:0]  csr_era_rdata;
     //ERA-PC
     always @(posedge clk) begin
-        if (wb_exc)
+        if(~resetn)begin
+            csr_era_pc <= 32'b0;
+        end
+        else if (wb_exc)
             csr_era_pc <= wb_pc;
         else if (csr_we && csr_waddr==`CSR_ERA)
             csr_era_pc <= csr_wmask[`CSR_ERA_PC]&csr_wdata[`CSR_ERA_PC] | ~csr_wmask[`CSR_ERA_PC]&csr_era_pc;
@@ -150,7 +164,10 @@ module csr(
     wire    [31:0]  csr_eentry_rdata;
     //EENTRY-VA
     always @(posedge clk) begin
-        if (csr_we && csr_waddr==`CSR_EENTRY)
+        if(~resetn)begin
+            csr_eentry_va <= 26'b0;
+        end
+        else if (csr_we && csr_waddr==`CSR_EENTRY)
             csr_eentry_va <= csr_wmask[`CSR_EENTRY_VA]&csr_wdata[`CSR_EENTRY_VA] | ~csr_wmask[`CSR_EENTRY_VA]&csr_eentry_va;
     end
     assign  csr_eentry_rdata = {
@@ -168,14 +185,22 @@ module csr(
     wire    [31:0]  csr_save3_rdata;
     //SAVE 0~3
     always @(posedge clk) begin
-        if (csr_we && csr_waddr==`CSR_SAVE0)
-            csr_save0_data <= csr_wmask[`CSR_SAVE_DATA]&csr_wdata[`CSR_SAVE_DATA] | ~csr_wmask[`CSR_SAVE_DATA]&csr_save0_data;
-        if (csr_we && csr_waddr==`CSR_SAVE1)
-            csr_save1_data <= csr_wmask[`CSR_SAVE_DATA]&csr_wdata[`CSR_SAVE_DATA] | ~csr_wmask[`CSR_SAVE_DATA]&csr_save1_data;
-        if (csr_we && csr_waddr==`CSR_SAVE2)
-            csr_save2_data <= csr_wmask[`CSR_SAVE_DATA]&csr_wdata[`CSR_SAVE_DATA] | ~csr_wmask[`CSR_SAVE_DATA]&csr_save2_data;
-        if (csr_we && csr_waddr==`CSR_SAVE3)
-            csr_save3_data <= csr_wmask[`CSR_SAVE_DATA]&csr_wdata[`CSR_SAVE_DATA] | ~csr_wmask[`CSR_SAVE_DATA]&csr_save3_data;
+        if(~resetn)begin
+            csr_save0_data <= 32'b0;
+            csr_save1_data <= 32'b0;
+            csr_save2_data <= 32'b0;
+            csr_save3_data <= 32'b0;
+        end
+        else begin
+            if (csr_we && csr_waddr==`CSR_SAVE0)
+                csr_save0_data <= csr_wmask[`CSR_SAVE_DATA]&csr_wdata[`CSR_SAVE_DATA] | ~csr_wmask[`CSR_SAVE_DATA]&csr_save0_data;
+            if (csr_we && csr_waddr==`CSR_SAVE1)
+                csr_save1_data <= csr_wmask[`CSR_SAVE_DATA]&csr_wdata[`CSR_SAVE_DATA] | ~csr_wmask[`CSR_SAVE_DATA]&csr_save1_data;
+            if (csr_we && csr_waddr==`CSR_SAVE2)
+                csr_save2_data <= csr_wmask[`CSR_SAVE_DATA]&csr_wdata[`CSR_SAVE_DATA] | ~csr_wmask[`CSR_SAVE_DATA]&csr_save2_data;
+            if (csr_we && csr_waddr==`CSR_SAVE3)
+                csr_save3_data <= csr_wmask[`CSR_SAVE_DATA]&csr_wdata[`CSR_SAVE_DATA] | ~csr_wmask[`CSR_SAVE_DATA]&csr_save3_data; 
+        end
     end
     assign {
         csr_save0_rdata, csr_save1_rdata, csr_save2_rdata, csr_save3_rdata
@@ -192,6 +217,8 @@ module csr(
     always @ (posedge clk) begin
         if (~resetn) begin
             csr_tcfg_en <= 1'b0;
+            csr_tcfg_periodic <= 1'b0;
+            csr_tcfg_initdata <= 30'b0;
         end else if (csr_we && csr_waddr == `CSR_TCFG) begin
             csr_tcfg_en      <= csr_wmask[`CSR_TCFG_EN] & csr_wdata[`CSR_TCFG_EN] |
                                ~csr_wmask[`CSR_TCFG_EN] & csr_tcfg_en;
@@ -248,7 +275,10 @@ module csr(
     wire [31:0] csr_badv_rdata;
     assign wb_exc_addr_err = wb_ecode==`EXC_ECODE_ADE || wb_ecode==`EXC_ECODE_ALE;
     always @(posedge clk) begin
-        if (wb_exc && wb_exc_addr_err)
+        if(~resetn)begin
+            csr_badv_vaddr <= 32'b0;
+        end
+        else if (wb_exc && wb_exc_addr_err)
             csr_badv_vaddr <= (wb_ecode==`EXC_ECODE_ADE && 
                                wb_esubcode==`EXC_ESUBCODE_ADEF) ? wb_pc : wb_badvaddr;
     end

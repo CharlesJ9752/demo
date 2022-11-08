@@ -7,7 +7,7 @@
     `define EXE_MEM_BUS_WDTH 191
     `define MEM_WB_BUS_WDTH 188
     `define EXE_WR_BUS_WDTH 39
-    `define MEM_WR_BUS_WDTH 38
+    `define MEM_WR_BUS_WDTH 39
     `define EXE_CSR_BLK_BUS_WDTH 16
     `define MEM_CSR_BLK_BUS_WDTH 16
     `define WB_CSR_BLK_BUS_WDTH 16

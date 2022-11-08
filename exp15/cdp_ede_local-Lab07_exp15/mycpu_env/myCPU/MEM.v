@@ -14,21 +14,30 @@ module MEM (
     //与数据存储器
     input   [ 31:0]                         data_sram_rdata,
     input                                   data_sram_data_ok,
-    //写信号
+    //写信�?
     output  [`MEM_WR_BUS_WDTH - 1:0]        mem_wr_bus,
     output                                  mem_exc,
     output  [`MEM_CSR_BLK_BUS_WDTH - 1:0]   mem_csr_blk_bus,
-    //中断和异常信号
+    //中断和异常信�?
     input                                   wb_exc,
     input                                   ertn_flush,
     output                                  mem_ertn        ,
     output                                  ldst_cancel 
 );
+//����
+wire mem_en_block;
+assign mem_en_block=is_load & mem_valid;
+
+
+
+
+
+
 //信号定义
     //控制信号
     reg                                     mem_valid;
     wire                                    mem_ready_go;
-    //pc和指令
+    //pc和指�?
     wire    [ 31:0]                         mem_pc;
     wire    [ 31:0]                         mem_inst;
     //bus
@@ -47,12 +56,12 @@ module MEM (
     wire    [31:0]                          mem_csr_wdata;
     wire    [31:0]                          mem_csr_rdata;
     wire    [31:0]                          mem_csr_wmask;
-    //中断和异常标志
+    //中断和异常标�?
     wire    [`NUM_TYPES - 1:0]               exe_exc_type;
     wire    [`NUM_TYPES - 1:0]               mem_exc_type;
     wire                                    ls_cancel;
     wire                                    mem_we;
-//控制信号的赋值
+//控制信号的赋�?
     assign  mem_ready_go = (is_load | mem_we) ?  (|mem_exc_type) | ls_cancel | data_sram_data_ok : 1'b1;
     assign  mem_wb_valid = mem_ready_go & mem_valid &  ~is_ertn_exc;
     assign  mem_allowin = mem_ready_go & wb_allowin | ~mem_valid;
@@ -65,7 +74,10 @@ module MEM (
     end
 //主bus连接
     always @(posedge clk ) begin
-        if (exe_mem_valid & mem_allowin) begin
+        if(~resetn)begin
+            exe_mem_bus_vld <= `EXE_MEM_BUS_WDTH'b0;
+        end
+        else if (exe_mem_valid & mem_allowin) begin
             exe_mem_bus_vld <= exe_mem_bus;
         end
     end
@@ -110,11 +122,11 @@ module MEM (
                                 res_from_mem            ?   mem_ld_result   : 
                                                             exe_to_mem_result      ;
     assign mem_exc = (|mem_exc_type) & mem_valid;
-//阻塞和前递
+//阻塞和前�?
     assign  mem_en_bypass = mem_valid & mem_gr_we;
-    assign  mem_wr_bus = {mem_en_bypass, mem_dest, mem_final_result};
+    assign  mem_wr_bus = {mem_en_bypass,mem_en_block, mem_dest, mem_final_result};
     assign  mem_csr_blk_bus= {mem_csr_we & mem_valid, mem_ertn, mem_csr_waddr};
-//中断和异常标志
+//中断和异常标�?
     assign mem_exc_type = exe_exc_type;
     assign mem_ertn = mem_valid & mem_inst_ertn;
 //add
