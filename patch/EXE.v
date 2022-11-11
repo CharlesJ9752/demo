@@ -71,7 +71,7 @@ module EXE (
 
 
     //控制信号的赋值
-    assign exe_ready_go    = (is_load || exe_mem_we)? (((data_sram_req & data_sram_addr_ok) | ls_cancel) || addr_ok_reg) : 
+    assign exe_ready_go    = (is_load || exe_mem_we)? (((data_sram_req & data_sram_addr_ok) | ls_cancel)) : 
                              ((alu_op[15] | alu_op[17]) & div_out_tvalid | 
                              (alu_op[16] | alu_op[18]) & divu_out_tvalid |
                              (~(alu_op[15]|alu_op[16]|alu_op[17]|alu_op[18])));
@@ -86,7 +86,10 @@ module EXE (
     end
 //主bus连接
     always @(posedge clk ) begin
-        if (id_exe_valid & exe_allowin) begin
+        if(~resetn)begin
+            id_exe_bus_vld <= `ID_EXE_BUS_WDTH'b0;
+        end
+        else if (id_exe_valid & exe_allowin) begin
             id_exe_bus_vld <= id_exe_bus; 
         end
     end
@@ -276,7 +279,7 @@ module EXE (
                         {32{inst_st_h}} & {2{exe_rkd_value[15:0]}} |
                         {32{inst_st_b}} & {4{exe_rkd_value[7:0]}};
     assign  ls_cancel   = is_ertn_exc | ldst_cancel | (|exe_exc_type);
-    assign  data_sram_req = (is_load || exe_mem_we) && exe_valid && ~is_ertn_exc && ~addr_ok_reg && ~ls_cancel;
+    assign  data_sram_req = (is_load || exe_mem_we) && exe_valid && ~is_ertn_exc && ~ls_cancel && mem_allowin;
     assign  data_sram_wr = exe_valid & exe_mem_we;
     assign  data_sram_wstrb = inst_st_b ? (4'b0001<<alu_result[1:0]) : inst_st_h ? (4'b0011<<{alu_result[1],1'b0}) :
                               inst_st_w ? 4'b1111                    : 4'b0;
@@ -303,23 +306,11 @@ end
                             alu_op[18] ? divu_res_lo :
                                          alu_result;
 //add, exp14
-    reg addr_ok_reg;
     reg exc_reg;
     reg ertn_reg;
     wire is_load;
     assign is_ertn_exc = (wb_exc | ertn_flush | exc_reg | ertn_reg);
     assign is_load = inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu | inst_ld_w;
-    always @(posedge clk) begin
-        if(~resetn) begin
-            addr_ok_reg <= 1'b0;
-        end 
-        else if(data_sram_addr_ok & data_sram_req & ~mem_allowin) begin
-            addr_ok_reg <= 1'b1;
-        end 
-        else if(mem_allowin) begin
-            addr_ok_reg <= 1'b0;
-        end
-    end
     always @(posedge clk) begin
         if (~resetn) begin
             exc_reg <= 1'b0;

@@ -59,7 +59,10 @@ module WB (
     end
 //主bus连接
     always @(posedge clk ) begin
-        if (mem_wb_valid & wb_allowin) begin
+        if(~resetn)begin
+            mem_wb_bus_vld <= `MEM_WB_BUS_WDTH'b0;
+        end
+        else if (mem_wb_valid & wb_allowin) begin
             mem_wb_bus_vld <= mem_wb_bus;
         end
     end

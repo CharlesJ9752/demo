@@ -1,44 +1,44 @@
 `include "mycpu.h"
-//译码，生成操作数
+//���룬���ɲ�����
 module ID (
     input                                   clk,
     input                                   resetn,
-    //与IF阶段
+    //��IF�׶�
     input                                   if_id_valid,
     output                                  id_allowin,
     input   [`IF_ID_BUS_WDTH - 1:0]         if_id_bus,//exc_type + pc + inst
     output  [`ID_IF_BUS_WDTH - 1:0]         id_if_bus,//en_brch+br_target
-    //与EXE阶段
+    //��EXE�׶�
     input                                   exe_allowin,
     output                                  id_exe_valid,
     output  [`ID_EXE_BUS_WDTH - 1:0]        id_exe_bus,//add 2bits
-    //来自WB阶段
+    //����WB�׶�
     input   [`WB_ID_BUS_WDTH - 1:0]         wb_id_bus,
-    //阻塞和前递信号
+    //������ǰ���ź�
     input   [`EXE_WR_BUS_WDTH - 1:0]        exe_wr_bus,
     input   [`MEM_WR_BUS_WDTH - 1:0]        mem_wr_bus,
-    //异常&中断
+    //�쳣&�ж�
     input                                   wb_exc,
     input                                   csr_has_int,
-    //与csr寄存器
+    //��csr�Ĵ���
     input   [31:0]                          csr_rdata,
     output  [13:0]                          csr_raddr,
     input   [`EXE_CSR_BLK_BUS_WDTH - 1:0]   exe_csr_blk_bus,
     input   [`MEM_CSR_BLK_BUS_WDTH - 1:0]   mem_csr_blk_bus,
     input   [`WB_CSR_BLK_BUS_WDTH - 1:0]    wb_csr_blk_bus//ertn_flush in this
 );
-//信号定义
-    //控制信号
+//�źŶ���
+    //�����ź�
     reg                                     id_valid;
     wire                                    id_ready_go;
     wire                                    id_en_brch;
-    //指令和pc
+    //ָ���pc
     wire    [31:0]                          id_br_target;
     wire    [31:0]                          id_inst;
     wire    [31:0]                          id_pc;
     //bus
     reg     [`IF_ID_BUS_WDTH - 1:0]         if_id_bus_vld;
-    //阻塞和前递
+    //������ǰ��
     wire                                    exe_en_bypass;
     wire                                    exe_en_block;
     wire                                    exe_res_from_mem;
@@ -50,7 +50,7 @@ module ID (
     wire    [ 4:0]                          mem_dest;
     wire    [ 4:0]                          wb_dest;
     wire                                    en_brch_cancel;
-    //异常和中断
+    //�쳣���ж�
     wire [`NUM_TYPES - 1:0]                 id_exc_type;
     //csr
     wire                                    id_csr_we;
@@ -74,25 +74,48 @@ module ID (
             
 
 
-//控制信号的赋值
+//�����źŵĸ�ֵ
     assign id_ready_go = ~csr_blk & ~( exe_en_block & ((exe_dest==rf_raddr1) & addr1_valid //untest
-                                    |(exe_dest==rf_raddr2) & addr2_valid));//in case of load
-    assign id_exe_valid = id_ready_go && id_valid;
+                                    |(exe_dest==rf_raddr2) & addr2_valid)) 
+                                    & ~( mem_en_block & ((mem_dest==rf_raddr1) & addr1_valid //untest
+                                    |(mem_dest==rf_raddr2) & addr2_valid));//in case of load
+    reg exc_reg;
+    reg ertn_reg;
+    always @(posedge clk) begin
+        if (~resetn) begin
+            exc_reg <= 1'b0;
+            ertn_reg <= 1'b0;
+        end 
+        else if (wb_exc) begin
+            exc_reg <= 1'b1;
+        end 
+        else if (ertn_flush) begin
+            ertn_reg <= 1'b1;
+        end 
+        else if (if_id_valid & id_allowin)begin
+            exc_reg <= 1'b0;
+            ertn_reg <= 1'b0;
+        end 
+    end
+
+
+    assign is_ertn_exc = (wb_exc | ertn_flush | exc_reg | ertn_reg);
+    assign id_exe_valid = id_ready_go && id_valid &  ~is_ertn_exc;
     assign id_allowin = id_ready_go && exe_allowin || ~id_valid;
     always @(posedge clk ) begin
         if(~resetn) begin
-            id_valid <= 1'b0;
-        end
-        else if(br_taken) begin
             id_valid <= 1'b0;
         end
         else if(id_allowin) begin
             id_valid <= if_id_valid;
         end
     end
-//主bus连接
+//��bus����
     always @(posedge clk ) begin
-        if(if_id_valid & id_allowin)begin
+        if(~resetn)begin
+            if_id_bus_vld <= `IF_ID_BUS_WDTH'b0;
+        end
+        else if(if_id_valid & id_allowin)begin
             if_id_bus_vld <= if_id_bus;
         end
     end
@@ -108,7 +131,7 @@ module ID (
         id_alu_op, id_alu_src1, id_alu_src2,
         id_dest, id_rkd_value, id_inst, id_pc
     };
-//译码，生成操作数
+//���룬���ɲ�����
     wire [ 5:0] op_31_26;
     wire [ 3:0] op_25_22;
     wire [ 1:0] op_21_20;
@@ -170,7 +193,7 @@ module ID (
     wire        inst_st_h;    
 
     /************************/
-    //异常&中断
+    //�쳣&�ж�
     wire        inst_syscall;
     wire        inst_csrrd;
     wire        inst_csrwr;
@@ -289,7 +312,7 @@ module ID (
     assign inst_st_h   = op_31_26_d[6'h0a] & op_25_22_d[4'h5];
 
     /************************/
-    //异常&中断
+    //�쳣&�ж�
     assign inst_syscall= op_31_26_d[6'b000000] & op_25_22_d[4'b0000] & op_21_20_d[2'b10] & op_19_15_d[5'b10110];
     assign inst_csrrd  = (id_inst[31:24]==8'b00000100) & (rj==5'b00000);
     assign inst_csrwr  = (id_inst[31:24]==8'b00000100) & (rj==5'b00001);
@@ -382,7 +405,7 @@ module ID (
     assign rf_raddr1 = rj;
     assign rf_raddr2 = src_reg_is_rd ? rd :rk;
     assign rj_eq_rd = (rj_value == id_rkd_value);
-    assign rj_less_rd =($signed(rj_value) < $signed(id_rkd_value));   //需要加上signed                                      //change 6
+    assign rj_less_rd =($signed(rj_value) < $signed(id_rkd_value));   //��Ҫ����signed                                      //change 6
     assign rj_lessu_rd =($unsigned(rj_value) < $unsigned(id_rkd_value));                    //change 7
     assign id_en_brch = (   inst_beq  &&  rj_eq_rd
                     || inst_bne  && !rj_eq_rd
@@ -403,13 +426,13 @@ module ID (
     };
     assign id_alu_src1 = src1_is_pc  ? id_pc : rj_value;
     assign id_alu_src2 = src2_is_imm ? imm : id_rkd_value;
-//处理阻塞和前递（regfile寄存器和csr寄存器）
+//����������ǰ�ݣ�regfile�Ĵ�����csr�Ĵ�����
     //regfile
     assign  {
         exe_en_bypass, exe_en_block, exe_dest, exe_wdata
     } = exe_wr_bus;
     assign  {
-        mem_en_bypass, mem_dest, mem_wdata
+        mem_en_bypass, mem_en_block,mem_dest, mem_wdata
     } = mem_wr_bus;
     assign addr1_valid = ~id_exc_type[`TYPE_INE] & 
                     ~(inst_b | inst_bl | inst_csrrd | inst_csrwr | inst_syscall | inst_ertn | inst_break |
@@ -428,12 +451,12 @@ module ID (
                             (mem_en_bypass & (mem_dest == rf_raddr2) & addr2_valid & |rf_raddr2)? mem_wdata :
                             (rf_we         & (rf_waddr == rf_raddr2) & addr2_valid & |rf_raddr2)? rf_wdata  : rf_rdata2;
 
-    //csr寄存器
+    //csr�Ĵ���
     assign {exe_csr_we, exe_ertn, exe_csr_waddr} = exe_csr_blk_bus;
     assign {mem_csr_we, mem_ertn, mem_csr_waddr} = mem_csr_blk_bus;
     assign {wb_csr_we, ertn_flush, wb_csr_waddr}    = wb_csr_blk_bus;
 
-    assign csr_blk = id_csr_re & (//阻塞信号
+    assign csr_blk = id_csr_re & (//�����ź�
                         exe_csr_we&csr_raddr==exe_csr_waddr&(|exe_csr_waddr)|
                         mem_csr_we&csr_raddr==mem_csr_waddr&(|mem_csr_waddr)|
                         wb_csr_we&csr_raddr==wb_csr_waddr&(|wb_csr_waddr)|
@@ -442,7 +465,7 @@ module ID (
                         (ertn_flush)&(wb_csr_waddr==`CSR_ERA|wb_csr_waddr==`CSR_PRMD|csr_raddr==`CSR_CRMD)//jyh
                     );
 
-//读写regfile寄存器
+//��дregfile�Ĵ���
   assign {
         rf_we, rf_waddr, rf_wdata
     } = wb_id_bus;
@@ -456,7 +479,7 @@ module ID (
         .waddr  (rf_waddr ),
         .wdata  (rf_wdata )
     );
-//读写csr寄存器
+//��дcsr�Ĵ���
     assign id_csr_we    = inst_csrwr | inst_csrxchg;
     assign id_csr_re    = inst_csrrd | inst_csrwr | inst_csrxchg | inst_rdcntid_w;
     assign id_csr_waddr = id_inst[23:10];
@@ -481,7 +504,7 @@ module ID (
                             {32{id_csr_waddr == `CSR_TICLR }} & `CSR_MASK_TICLR;
 
 
-//中断和异常标志
+//�жϺ��쳣��־
     /**new added**/
     assign  id_exc_type[`TYPE_SYS]=inst_syscall;
     assign  id_exc_type[`TYPE_ADEF]=if_exc_type[`TYPE_ADEF];
