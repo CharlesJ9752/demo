@@ -49,8 +49,8 @@ module IF (
     assign  to_pf_valid = 1'b1;
     assign  pf_allowin  = 1'b1;//untest
     assign  pf_if_valid = pf_ready_go & pf_valid;
-    assign  pf_ready_go =  inst_sram_addr_ok && inst_sram_req
-                        &&!(wb_exc||ertn_flush||br_stall||((pf_ertn_reg || pf_exc_reg)&&cancel));//untest
+    assign  pf_ready_go =  (inst_sram_addr_ok && inst_sram_req) && ~(((pf_ertn_reg||pf_exc_reg||stall_reg)&&cancel) 
+                                                                     ||br_stall||wb_exc||ertn_flush);//untest
     //生成pc
     wire    [31:0]                  pf_seqpc;
     wire    [31:0]                  pf_nextpc;
@@ -75,16 +75,19 @@ module IF (
     reg     [31:0]                  pf_retaddr_reg;
     reg                             br_reg;
     reg     [31:0]                  br_target_reg;
+    reg                             stall_reg;
     //控制信号
     always @(posedge clk) begin
         if (~resetn) begin
             br_reg <= 1'b0;
-        end
-        else if (br_taken && !br_stall) begin
+            stall_reg <= 1'b0;
+        end else if(br_stall) begin
+            stall_reg <= 1'b1;
+        end else if (br_taken && !br_stall) begin
             br_reg <= 1'b1;
-        end 
-        else if (inst_sram_addr_ok && ~cancel && if_allowin)begin
+        end else if (inst_sram_addr_ok && ~cancel && if_allowin)begin
             br_reg <= 1'b0;
+            stall_reg <= 1'b0;
         end 
     end
     always @(posedge clk) begin
@@ -132,24 +135,26 @@ module IF (
         end
     end
     //向指令存储器发送申请
-    assign inst_sram_req = resetn && pf_valid && if_allowin && ~cancel;//add
+    assign inst_sram_req = pf_valid && if_allowin && !cancel;//add
     assign inst_sram_addr = pf_nextpc   ;
     assign inst_sram_size = 2'h2        ;
     assign inst_sram_wstrb = 4'b0       ;
     assign inst_sram_wdata = 32'b0      ;
     assign inst_sram_wr    = 1'b0       ;//don't write
-    reg     cancel;//flush用于避免陷入时出现pc和指令不相同的情况
+    reg     cancel;
     always @(posedge clk ) begin
         if(~resetn)begin
             cancel <= 1'b0;
         end
-        else if(inst_sram_req && (ertn_flush||wb_exc||(br_stall&&inst_sram_addr_ok)))begin
+        else if(inst_sram_req && (wb_exc||ertn_flush||(br_stall&&inst_sram_addr_ok)))begin
             cancel <= 1'b1;
         end
         else if(inst_sram_data_ok)begin
             cancel <= 1'b0;
         end
     end
+
+
 //IF阶段，完成取指，传递给下个ID阶段
     //流水线控制信号
     reg         if_valid;
@@ -219,7 +224,7 @@ module IF (
         else if (inst_sram_data_ok & ~buffer_valid & ~is_ertn_exc & ~id_allowin)begin
             buffer_valid <= 1'b1;
         end
-        else if (id_allowin | ertn_flush | wb_exc) begin
+        else if (id_allowin | is_ertn_exc) begin
             buffer_valid <= 1'b0;//清零
         end
     end
@@ -230,7 +235,7 @@ module IF (
         else if (inst_sram_data_ok & ~buffer_valid & ~is_ertn_exc & ~id_allowin)begin
             buffer <= inst_sram_rdata;
         end
-        else if (id_allowin | ertn_flush | wb_exc) begin
+        else if (id_allowin | is_ertn_exc) begin
             buffer <= 32'b0;
         end
     end

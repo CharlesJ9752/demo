@@ -2,8 +2,6 @@
 module mycpu_top(
     input  wire        aclk,
     input  wire        aresetn,
-    // read requeset
-    // master->slave
     output [ 3:0]   arid,
     output [31:0]   araddr,
     output [ 7:0]   arlen,
@@ -13,19 +11,13 @@ module mycpu_top(
     output [ 3:0]   arcache,
     output [ 2:0]   arprot,
     output          arvalid,
-    // slave->master
     input           arready,
-    // read response
-    // slave->master
     input  [ 3:0]   rid,
     input  [31:0]   rdata,
     input  [ 1:0]   rresp,
     input           rlast,
     input           rvalid,
-    // master->slave
     output          rready,
-    // write request
-    // master->slave
     output [ 3:0]   awid,
     output [31:0]   awaddr,
     output [ 7:0]   awlen,
@@ -35,26 +27,17 @@ module mycpu_top(
     output [ 3:0]   awcache,
     output [ 2:0]   awprot,
     output          awvalid,
-    // slave->master
     input           awready,
-    // write data
-    // master->slave
     output  [ 3:0]  wid,
     output  [31:0]  wdata,
     output  [ 3:0]  wstrb,
     output          wlast,
     output          wvalid,
-    // slave->master
     input           wready,
-    // write response
-    // slave->master
     input  [ 3:0]   bid,
     input  [ 1:0]   bresp,
     input           bvalid,
-    // master->slave
     output          bready,
-
-    // trace debug interface
     output wire [31:0] debug_wb_pc,
     output wire [ 3:0] debug_wb_rf_we,
     output wire [ 4:0] debug_wb_rf_wnum,
@@ -128,7 +111,7 @@ module mycpu_top(
     //模块调用
     AXI_bridge my_AXI_bridge(
         .aclk                (aclk       ),
-        .aresetn             (aresetn    ),   //low active
+        .aresetn             (aresetn    ), 
 
         .arid               (arid      ),
         .araddr             (araddr    ),

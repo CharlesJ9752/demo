@@ -3,9 +3,9 @@
 `define RREQ_TRAW 5'b00100
 `define RREQ_DATA 5'b01000
 `define RREQ_END  5'b10000
-`define RVAL_WAIT 3'b001
-`define RVAL_DATA 3'b010
-`define RVAL_END  3'b100
+`define RRSP_WAIT 3'b001
+`define RRSP_BEGN 3'b010
+`define RRSP_END  3'b100
 `define WREQ_WAIT 4'b0001
 `define WREQ_TRAW 4'b0010
 `define WREQ_DATA 4'b0100
@@ -97,66 +97,66 @@ module AXI_bridge (
     end
     always @(*) begin
         case (rreq_state)
-            `RREQ_WAIT:
+            `RREQ_WAIT://01
                 if(data_sram_req && !data_sram_wr) //读数据请�?
                     rreq_next_state = `RREQ_TRAW;
                 else if(inst_sram_req)
                     rreq_next_state = `RREQ_INST;
                 else
                     rreq_next_state = `RREQ_WAIT;
-            `RREQ_DATA:
+            `RREQ_DATA://08
                 if(arvalid && arready)
                     rreq_next_state = `RREQ_END;
                 else
                     rreq_next_state = `RREQ_DATA;
-            `RREQ_INST://可以合并
+            `RREQ_INST://02
                 if(arvalid && arready)
                     rreq_next_state = `RREQ_END;
                 else
                     rreq_next_state = `RREQ_INST;
-            `RREQ_TRAW:
+            `RREQ_TRAW://04
                 if(bready && raw_blk)
                     rreq_next_state = `RREQ_TRAW;
                 else
                     rreq_next_state = `RREQ_DATA;
-            `RREQ_END:
+            `RREQ_END://10
                 rreq_next_state = `RREQ_WAIT;
             default: 
                 rreq_next_state = `RREQ_WAIT;
         endcase
     end
 //读数�?
-    reg     [2:0]   rval_state;
-    reg     [2:0]   rval_next_state;
+    reg     [2:0]   rrsp_state;
+    reg     [2:0]   rrsp_next_state;
     always @(posedge aclk ) begin
         if(~aresetn)begin
-            rval_state <= `RVAL_WAIT;
+            rrsp_state <= `RRSP_WAIT;
         end
         else begin
-            rval_state <= rval_next_state;
+            rrsp_state <= rrsp_next_state;
         end
     end
     always @(*) begin
-        case (rval_state)
-            `RVAL_WAIT: 
+        case (rrsp_state)
+            `RRSP_WAIT: 
                 if((|rinst_cnt)||(|rdata_cnt)||(arready&&arvalid))
-                    rval_next_state = `RVAL_DATA;
+                    rrsp_next_state = `RRSP_BEGN;
                 else 
-                    rval_next_state = `RVAL_WAIT;
-            `RVAL_DATA:
+                    rrsp_next_state = `RRSP_WAIT;
+            `RRSP_BEGN:
                 if(rvalid && rready)
-                    rval_next_state = `RVAL_END;
+                    rrsp_next_state = `RRSP_END;
                 else 
-                    rval_next_state = `RVAL_DATA;
-            `RVAL_END:
+                    rrsp_next_state = `RRSP_BEGN;
+            `RRSP_END:
                 if(rvalid && rready)
-                    rval_next_state = `RVAL_END;
+                    rrsp_next_state = `RRSP_END;
                 else if((|rinst_cnt)||(|rdata_cnt))
-                    rval_next_state = `RVAL_DATA;
+                    rrsp_next_state = `RRSP_BEGN;
                 else
-                    rval_next_state = `RVAL_WAIT;
+                    rrsp_next_state = `RRSP_WAIT;
             default: 
-                    rval_next_state = `RVAL_WAIT;
+                    rrsp_next_state = `RRSP_WAIT;
         endcase
     end
 //写请�?
@@ -248,20 +248,13 @@ module AXI_bridge (
             arsize_r <= 3'b0;
             araddr_r <= 32'b0;
         end
-        else if(rreq_state[3]|rreq_next_state[3])begin
-            arid_r <= 4'b1;
-            arsize_r <= {1'b0,data_sram_size};
-            araddr_r <= data_sram_addr;
-        end
-        else if(rreq_next_state[1]|rreq_state[1])begin
-            arid_r <= 4'b0;
-            arsize_r <= {1'b0,inst_sram_size};
-            araddr_r <= inst_sram_addr;
-        end
         else begin
-            arid_r <= 4'b0;
-            arsize_r <= 3'b0;
-            araddr_r <= 32'b0;
+            arid_r <=   { 4{(rreq_state[3]|rreq_next_state[3])}}&4'b1|
+                        { 4{(rreq_state[1]|rreq_next_state[1])}}&4'b0;
+            arsize_r <= { 3{(rreq_state[3]|rreq_next_state[3])}}&{1'b0,data_sram_size}|
+                        { 3{(rreq_state[1]|rreq_next_state[1])}}&{1'b0,inst_sram_size};
+            araddr_r <= {32{(rreq_state[3]|rreq_next_state[3])}}&data_sram_addr|
+                        {32{(rreq_state[1]|rreq_next_state[1])}}&inst_sram_addr;
         end
     end
     always @(posedge aclk) begin
@@ -271,15 +264,12 @@ module AXI_bridge (
         else if(rreq_state[1]|rreq_state[3]) begin
             arvalid_r <= 1'b1;
         end 
-        else begin
-            arvalid_r <= arvalid_r;
-        end
     end
     //r
     assign rready=rinst_cnt!=2'b0 || rdata_cnt!=2'b0;
     reg [3:0]   rid_r;
     always @(posedge aclk) begin
-        if(~aresetn|rval_next_state[0]) begin
+        if(~aresetn|rrsp_next_state[0]) begin
             rid_r <= 4'b0;
         end 
         else if(rvalid) begin
@@ -378,77 +368,86 @@ module AXI_bridge (
         end
     end    
 //任务计数�?
-    reg [1:0]   rinst_cnt;
-    reg [1:0]   rdata_cnt;
-    reg [1:0]   wtask_cnt;
+    reg [2:0]   rinst_cnt;
+    reg [2:0]   rdata_cnt;
+    reg [2:0]   wtask_cnt;
     always @(posedge aclk ) begin
         if(~aresetn)
-            rinst_cnt<=2'b0;
+            rinst_cnt<=3'b0;
         else if ((arready&&arvalid)&&(rready&&rvalid))begin
             if(arid==4'b0&&rid==4'b1)
-                rinst_cnt<=rinst_cnt+2'b1;
+                rinst_cnt<=rinst_cnt+3'b1;
             else if(arid==4'b1&&rid==4'b0)
-                rinst_cnt<=rinst_cnt-2'b1;
+                rinst_cnt<=rinst_cnt-3'b1;
         end
-        else if(rready&&rvalid)
-            rinst_cnt<=rinst_cnt-2'b1;
-        else if(arready&&arvalid)
-            rinst_cnt<=rinst_cnt+2'b1;
+        else if(rready&&rvalid)begin
+            if(rid==4'b0)
+                rinst_cnt<=rinst_cnt-3'b1; 
+        end
+        else if(arready&&arvalid)begin
+            if(arid==4'b0)
+                rinst_cnt<=rinst_cnt+3'b1;
+        end
+            
     end
     always @(posedge aclk ) begin
         if(~aresetn)
-            rdata_cnt<=2'b0;
+            rdata_cnt<=3'b0;
         else if ((arready&&arvalid)&&(rready&&rvalid))begin
             if(arid==4'b0&&rid==4'b1)
-                rdata_cnt<=rdata_cnt-2'b1;
+                rdata_cnt<=rdata_cnt-3'b1;
             else if(arid==4'b1&&rid==4'b0)
-                rdata_cnt<=rdata_cnt+2'b1;
+                rdata_cnt<=rdata_cnt+3'b1;
         end
-        else if(rready&&rvalid)
-            rdata_cnt<=rdata_cnt-2'b1;
-        else if(arready&&arvalid)
-            rdata_cnt<=rdata_cnt+2'b1;
+        else if(rready&&rvalid)begin
+            if(rid==4'b1)
+                rdata_cnt<=rdata_cnt-3'b1;
+        end
+        else if(arready&&arvalid)begin
+            if(arid==4'b1)
+                rdata_cnt<=rdata_cnt+3'b1;
+        end
     end
     always @(posedge aclk) begin
         if(~aresetn) begin
-            wtask_cnt <= 2'b0;
+            wtask_cnt <= 3'b0;
         end 
         else if((bvalid&&bready)&&(wvalid&&wready)) begin
             wtask_cnt <= wtask_cnt;
         end 
         else if(wvalid&&wready) begin
-            wtask_cnt<=wtask_cnt+2'b1;
+            wtask_cnt<=wtask_cnt+3'b1;
         end 
         else if(bvalid&&bready) begin
-            wtask_cnt<=wtask_cnt-2'b1;
+            wtask_cnt<=wtask_cnt-3'b1;
         end
     end
 //写后读相关检�?
     wire    raw_blk;
     assign raw_blk = arvalid_r && awvalid_r && (awaddr_r == araddr_r);
 //ok信号与数�?
-    reg     [31:0]  inst_buffer;
-    reg     [31:0]  data_buffer;
+    reg     [31:0]  inst_r;
+    reg     [31:0]  data_r;
     always @(posedge aclk) begin
         if(~aresetn) begin
-            inst_buffer <= 32'b0;
+            inst_r <= 32'b0;
         end 
         else if(rvalid && rready && ~rid[0]) begin
-            inst_buffer <= rdata;
+            inst_r <= rdata;
         end
     end
     always @(posedge aclk) begin
         if(~aresetn) begin
-            data_buffer <= 32'b0;
+            data_r <= 32'b0;
         end 
         else if(rvalid && rready && rid[0]) begin
-            data_buffer <= rdata;
+            data_r <= rdata;
         end
     end
-    assign inst_sram_rdata = inst_buffer;
-    assign data_sram_rdata = data_buffer;
+    assign inst_sram_rdata = inst_r;
+    assign data_sram_rdata = data_r;
     assign inst_sram_addr_ok = rreq_state[4]&~arid[0];
-    assign inst_sram_data_ok = rval_state[2]&~rid_r[0];
+    assign inst_sram_data_ok = rrsp_state[2]&~rid_r[0];
     assign data_sram_addr_ok = rreq_state[4]&arid[0]|wreq_state[3];
-    assign data_sram_data_ok = rval_state[2]&rid_r[0]|wrsp_state[2];
+    assign data_sram_data_ok = rrsp_state[2]&rid_r[0]|wrsp_state[2];
 endmodule
