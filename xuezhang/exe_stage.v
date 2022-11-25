@@ -28,16 +28,23 @@ module exe_stage(
     output [63:0]                   es_div_res_bus,
     output                          div_finish,
 
-    input                           wb_exc,
-    input                           wb_ertn,
+    input                           wb_flush,
     input                           ms_to_es_ls_cancel,
 
-    output [`ES_CSR_BLK_BUS_WD-1:0] es_csr_blk_bus
+    output [`ES_CSR_BLK_BUS_WD-1:0] es_csr_blk_bus,
+
+    output [19:0] s1_va_highbits,
+    output [ 9:0] s1_asid,
+
+    output        invtlb_valid,
+    output [ 4:0] invtlb_op,
+
+    input  [ 9:0] csr_asid_asid,
+    input  [18:0] csr_tlbehi_vppn
 );
 
 
-reg        wb_exc_r;
-reg        wb_ertn_r;
+reg         wb_flush_r;
 
 reg         es_valid      ;
 wire        es_ready_go   ;
@@ -83,9 +90,24 @@ wire ls_word;
 wire es_rdcn_en;
 wire es_rdcn_sel;
 
+wire es_refetch_flg;
+wire es_inst_tlbsrch;
+wire es_inst_tlbrd;
+wire es_inst_tlbwr;
+wire es_inst_tlbfill;
+wire es_inst_invtlb;
+wire [4:0] es_invtlb_op;
+
 assign es_res_from_div = is_div;
 
-assign {es_rdcn_en     ,
+assign {es_refetch_flg ,
+        es_inst_tlbsrch,
+        es_inst_tlbrd  ,
+        es_inst_tlbwr  ,
+        es_inst_tlbfill,
+        es_inst_invtlb ,
+        es_invtlb_op   ,
+        es_rdcn_en     ,
         es_rdcn_sel    ,
         es_csr_we      ,
         es_csr_re      ,
@@ -115,7 +137,12 @@ wire [31:0] es_alu_src2   ;
 wire [31:0] es_alu_result ;
 
 //assign es_res_from_mem = es_load_op;
-assign es_to_ms_bus = {es_rdcn_en     ,
+assign es_to_ms_bus = {es_refetch_flg ,
+                       es_inst_tlbsrch,
+                       es_inst_tlbrd  ,
+                       es_inst_tlbwr  ,
+                       es_inst_tlbfill,
+                       es_rdcn_en     ,
                        es_rdcn_sel    ,
                        es_csr_we      ,
                        es_csr_wnum    ,
@@ -137,7 +164,7 @@ assign es_to_ms_bus = {es_rdcn_en     ,
 
 assign es_ready_go    = ((|es_load_op) || es_mem_we) ? (((data_sram_req & data_sram_addr_ok) | ls_cancel)) : (~(is_div & ~div_es_go));
 assign es_allowin     = !es_valid || es_ready_go && ms_allowin;
-assign es_to_ms_valid =  es_valid & es_ready_go & (~(wb_exc | wb_ertn | wb_exc_r | wb_ertn_r));
+assign es_to_ms_valid =  es_valid & es_ready_go & (~(wb_flush | wb_flush_r));
 
 always @(posedge clk) begin
     if (reset) begin
@@ -155,15 +182,11 @@ end
 
 always @(posedge clk) begin
     if (reset) begin
-        wb_exc_r <= 1'b0;
-        wb_ertn_r <= 1'b0;
-    end else if (wb_exc) begin
-        wb_exc_r <= 1'b1;
-    end else if (wb_ertn) begin
-        wb_ertn_r <= 1'b1;
+        wb_flush_r <= 1'b0;
+    end else if (wb_flush) begin
+        wb_flush_r <= 1'b1;
     end else if (ds_to_es_valid & es_allowin)begin
-        wb_exc_r <= 1'b0;
-        wb_ertn_r <= 1'b0;
+        wb_flush_r <= 1'b0;
     end 
 end
 
@@ -193,7 +216,7 @@ assign store_data = es_store_op[2] ? {4{es_rkd_value[ 7:0]}} :  // b
                     es_store_op[1] ? {2{es_rkd_value[15:0]}} :  // h
                                         es_rkd_value[31:0];     // w
 
-assign data_sram_req   = ((|es_load_op) || es_mem_we) && es_valid && ~(wb_exc | wb_ertn | wb_exc_r | wb_ertn_r) && ~ls_cancel & ms_allowin;
+assign data_sram_req   = ((|es_load_op) || es_mem_we) && es_valid && ~(wb_flush | wb_flush_r) && ~ls_cancel & ms_allowin;
 assign data_sram_wr    = es_mem_we && es_valid;
 assign data_sram_size  = es_store_op[1] ? 2'h1     : // h
                          es_store_op[0] ? 2'h2 : 2'h0;   
@@ -211,7 +234,7 @@ assign es_fwd_blk_bus = {
     es_dest,
     es_result};
 
-assign ls_cancel = (wb_exc | wb_ertn | wb_exc_r | wb_ertn_r) | ms_to_es_ls_cancel | (|es_exc_flgs);
+assign ls_cancel = (wb_flush | wb_flush_r) | ms_to_es_ls_cancel | (|es_exc_flgs);
 
 assign es_result = es_csr_re ? es_csr_rdata :
                                es_alu_result;
@@ -229,7 +252,11 @@ assign es_exc_flgs[`EXC_FLG_INE ] = ds_to_es_exc_flgs[`EXC_FLG_INE ];
 assign es_exc_flgs[`EXC_FLG_INT ] = ds_to_es_exc_flgs[`EXC_FLG_INT ];
 assign es_exc_flgs[`EXC_FLG_SYS ] = ds_to_es_exc_flgs[`EXC_FLG_SYS ];
 
-assign es_csr_blk_bus = {es_csr_we & es_valid, es_inst_ertn & es_valid, es_csr_wnum};
+assign es_csr_blk_bus = {es_csr_we & es_valid, es_inst_ertn & es_valid, es_inst_tlbrd & es_valid, es_csr_wnum};
 
+assign s1_va_highbits = invtlb_valid ? es_rkd_value[31:12] : {csr_tlbehi_vppn, 1'b0};
+assign s1_asid        = invtlb_valid ?  es_rj_value[ 9: 0] : csr_asid_asid;
+assign invtlb_valid = es_inst_invtlb;
+assign invtlb_op    = es_invtlb_op;
 
 endmodule

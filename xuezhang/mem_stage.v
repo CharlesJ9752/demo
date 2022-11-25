@@ -23,14 +23,15 @@ module mem_stage(
     input  [63:0]                   ms_div_res_bus,
     input                           ms_div_finish,
 
-    input                           wb_exc,
-    input                           wb_ertn,
+    input                           wb_flush,
     output                          ms_to_es_ls_cancel,
-    output [`MS_CSR_BLK_BUS_WD-1:0] ms_csr_blk_bus
+    output [`MS_CSR_BLK_BUS_WD-1:0] ms_csr_blk_bus,
+
+    input         s1_found,
+    input  [ 3:0] s1_index
 );
 
-reg        wb_exc_r;
-reg        wb_ertn_r;
+reg         wb_flush_r;
 
 reg         ms_valid;
 wire        ms_ready_go;
@@ -73,13 +74,27 @@ wire        ms_store;
 
 wire        ls_cancel;
 
+wire        ms_refetch_flg;
+wire        ms_inst_tlbsrch;
+wire        ms_inst_tlbrd;
+wire        ms_inst_tlbwr;
+wire        ms_inst_tlbfill;
+
+wire        ms_tlbsrch_hit = s1_found;
+wire [ 3:0] ms_tlbsrch_hit_index = s1_index;
+
 reg [63:0] stable_cnter;
 
 assign ms_ready_go    = (|(ms_load_op) || ms_store) ? (data_sram_data_ok | (|ms_exc_flgs) | ls_cancel) : ~(ms_res_from_div & ~ms_div_finish);
 assign ms_allowin     = !ms_valid || ms_ready_go && ws_allowin;
-assign ms_to_ws_valid = ms_valid & ms_ready_go & (~(wb_exc | wb_ertn | wb_exc_r | wb_ertn_r));
+assign ms_to_ws_valid = ms_valid & ms_ready_go & (~(wb_flush | wb_flush_r));
 
-assign {ms_rdcn_en     ,
+assign {ms_refetch_flg ,
+        ms_inst_tlbsrch,
+        ms_inst_tlbrd  ,
+        ms_inst_tlbwr  ,
+        ms_inst_tlbfill,
+        ms_rdcn_en     ,
         ms_rdcn_sel    ,
         ms_csr_we      ,
         ms_csr_wnum    ,
@@ -99,7 +114,14 @@ assign {ms_rdcn_en     ,
         ms_pc             //31:0
        } = es_to_ms_bus_r;
 
-assign ms_to_ws_bus = {ms_csr_we      ,
+assign ms_to_ws_bus = {ms_refetch_flg ,
+                       ms_inst_tlbsrch,
+                       ms_inst_tlbrd  ,
+                       ms_inst_tlbwr  ,
+                       ms_inst_tlbfill,
+                       ms_tlbsrch_hit ,
+                       ms_tlbsrch_hit_index,
+                       ms_csr_we      ,
                        ms_csr_wnum    ,
                        ms_csr_wmask   ,
                        ms_csr_wdata   ,
@@ -127,15 +149,11 @@ end
 
 always @(posedge clk) begin
     if (reset) begin
-        wb_exc_r <= 1'b0;
-        wb_ertn_r <= 1'b0;
-    end else if (wb_exc) begin
-        wb_exc_r <= 1'b1;
-    end else if (wb_ertn) begin
-        wb_ertn_r <= 1'b1;
-    end else if (es_to_ms_valid & ms_allowin)begin
-        wb_exc_r <= 1'b0;
-        wb_ertn_r <= 1'b0;
+        wb_flush_r <= 1'b0;
+    end else if (wb_flush) begin
+        wb_flush_r <= 1'b1;
+    end else if (es_to_ms_valid & ms_allowin) begin
+        wb_flush_r <= 1'b0;
     end
 end
 
@@ -167,8 +185,8 @@ assign ms_final_result = ms_rdcn_en ? stable_cnter[{ms_rdcn_sel, 5'b0}+:32] :
 
 assign ms_fwd_blk_bus = {ms_gr_we & ms_to_ws_valid, ((|ms_load_op)) & ms_valid, ms_dest, ms_final_result};
 
-assign ms_to_es_ls_cancel = ((|ms_exc_flgs) | ms_inst_ertn) & ms_valid;
-assign ms_csr_blk_bus     = {ms_csr_we & ms_valid, ms_inst_ertn & ms_valid, ms_csr_wnum};
+assign ms_to_es_ls_cancel = ((|ms_exc_flgs) | ms_inst_ertn | ms_refetch_flg) & ms_valid;
+assign ms_csr_blk_bus     = {ms_csr_we & ms_valid, ms_inst_ertn & ms_valid, ms_inst_tlbrd & ms_valid, ms_csr_wnum};
 
 assign ms_exc_flgs = es_to_ms_exc_flgs;
 
