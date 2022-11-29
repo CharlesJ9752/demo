@@ -24,11 +24,17 @@ module EXE (
     //csr信号
     output  [`EXE_CSR_BLK_BUS_WDTH - 1:0]   exe_csr_blk_bus,
     //中断和异常信号
-    input                                   wb_exc,
-    input                                   ertn_flush,
+    input                                   flush,
     input                                   mem_exc,
     input                                   mem_ertn,
-    input                                   ldst_cancel
+    input                                   ldst_cancel,
+    //mmu
+    output  [19:0]                          s1_va_highbits,
+    output  [ 9:0]                          s1_asid,
+    output                                  invtlb_valid,
+    output  [ 4:0]                          invtlb_op,
+    input   [ 9:0]                          csr_asid_asid,
+    input   [18:0]                          csr_tlbehi_vppn
 );
 //信号定义
     //控制信号
@@ -52,6 +58,7 @@ module EXE (
     wire    [31:0]                      exe_rkd_value;
     wire                                exe_inst_ertn;
     wire    [31:0]                      exe_result;  
+    wire    [31:0]                      exe_rj_value;
     //csr信号
     wire                                exe_csr_we;
     wire                                exe_csr_re;
@@ -94,7 +101,12 @@ module EXE (
         end
     end
     assign { 
-        exe_rdcn, exe_inst_rdcntvh_w,  //new added
+        exe_refetch_flg, exe_inst_tlbsrch,
+        exe_inst_tlbrd, exe_inst_tlbwr,
+        exe_inst_tlbfill, exe_inst_invtlb,
+        exe_invtlb_op, exe_rj_value, 
+        //new add
+        exe_rdcn, exe_inst_rdcntvh_w,  
         exe_csr_we, exe_csr_re, exe_csr_waddr, exe_csr_wmask, exe_csr_wdata, exe_csr_rdata,   //112 bits
         exe_inst_ertn, id_exc_type,                                                         //7 bits
         exe_gr_we, exe_mem_we, exe_res_from_mem, 
@@ -102,6 +114,10 @@ module EXE (
         exe_dest, exe_rkd_value, exe_inst, exe_pc
     }=id_exe_bus_vld;
     assign  exe_mem_bus = {
+        exe_refetch_flg,exe_inst_tlbsrch,
+        exe_inst_tlbrd,exe_inst_tlbwr,
+        exe_inst_tlbfill,
+        //new add
         exe_csr_we,exe_csr_waddr,exe_csr_wmask,
         exe_csr_wdata,exe_inst_ertn,exe_exc_type,
         exe_gr_we, exe_res_from_mem, exe_dest,
@@ -255,7 +271,7 @@ module EXE (
     };
     //csr
     assign exe_csr_blk_bus = {
-        exe_csr_we & exe_valid, exe_ertn, exe_csr_waddr
+        exe_csr_we & exe_valid, exe_ertn, exe_inst_tlbrd&&exe_valid,exe_csr_waddr
     };
 //写存储器
     wire            inst_st_w;
@@ -279,7 +295,7 @@ module EXE (
                         {32{inst_st_h}} & {2{exe_rkd_value[15:0]}} |
                         {32{inst_st_b}} & {4{exe_rkd_value[7:0]}};
     assign  ls_cancel   = is_ertn_exc | ldst_cancel | (|exe_exc_type);
-    assign  data_sram_req = (is_load || exe_mem_we) && exe_valid && ~is_ertn_exc && ~ls_cancel && mem_allowin;
+    assign  data_sram_req = (is_load || exe_mem_we) && exe_valid && ~ls_cancel && mem_allowin && ~is_ertn_exc;
     assign  data_sram_wr = exe_valid & exe_mem_we;
     assign  data_sram_wstrb = inst_st_b ? (4'b0001<<alu_result[1:0]) : inst_st_h ? (4'b0011<<{alu_result[1],1'b0}) :
                               inst_st_w ? 4'b1111                    : 4'b0;
@@ -306,26 +322,31 @@ end
                             alu_op[18] ? divu_res_lo :
                                          alu_result;
 //add, exp14
-    reg exc_reg;
-    reg ertn_reg;
+    reg  flush_r;
     wire is_load;
-    assign is_ertn_exc = (wb_exc | ertn_flush | exc_reg | ertn_reg);
+    assign is_ertn_exc = (flush|flush_r);
     assign is_load = inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu | inst_ld_w;
-    always @(posedge clk) begin
-        if (~resetn) begin
-            exc_reg <= 1'b0;
-            ertn_reg <= 1'b0;
-        end 
-        else if (wb_exc) begin
-            exc_reg <= 1'b1;
-        end 
-        else if (ertn_flush) begin
-            ertn_reg <= 1'b1;
-        end 
-        else if (id_exe_valid & exe_allowin)begin
-            exc_reg <= 1'b0;
-            ertn_reg <= 1'b0;
-        end 
+    always @(posedge clk ) begin
+        if (~resetn)begin
+            flush_r<=1'b0;
+        end
+        else if (flush)begin
+            flush_r<=1'b1;
+        end
+        else if(id_exe_valid&&exe_allowin)begin
+            flush_r<=1'b0;
+        end
     end
-    
+//add, exp18
+    wire exe_refetch_flg;
+    wire exe_inst_tlbsrch;
+    wire exe_inst_tlbrd;
+    wire exe_inst_tlbwr;
+    wire exe_inst_tlbfill;
+    wire exe_inst_invtlb;
+    wire [4:0] exe_invtlb_op;
+    assign s1_va_highbits = invtlb_valid? exe_rkd_value[31:12] : {csr_tlbehi_vppn, 1'b0};
+    assign s1_asid = invtlb_valid ? exe_rj_value[ 9: 0] : csr_asid_asid;
+    assign invtlb_valid = exe_inst_invtlb;
+    assign invtlb_op = exe_invtlb_op;
 endmodule

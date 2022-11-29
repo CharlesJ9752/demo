@@ -1,4 +1,5 @@
 `include "mycpu.h"
+
 //���룬���ɲ�����
 module ID (
     input                                   clk,
@@ -18,7 +19,7 @@ module ID (
     input   [`EXE_WR_BUS_WDTH - 1:0]        exe_wr_bus,
     input   [`MEM_WR_BUS_WDTH - 1:0]        mem_wr_bus,
     //�쳣&�ж�
-    input                                   wb_exc,
+    input                                   flush,
     input                                   csr_has_int,
     //��csr�Ĵ���
     input   [31:0]                          csr_rdata,
@@ -26,6 +27,7 @@ module ID (
     input   [`EXE_CSR_BLK_BUS_WDTH - 1:0]   exe_csr_blk_bus,
     input   [`MEM_CSR_BLK_BUS_WDTH - 1:0]   mem_csr_blk_bus,
     input   [`WB_CSR_BLK_BUS_WDTH - 1:0]    wb_csr_blk_bus//ertn_flush in this
+    
 );
 //�źŶ���
     //�����ź�
@@ -63,43 +65,37 @@ module ID (
     wire [31:0]                             pre_mask;
     wire                                    exe_csr_we;
     wire [13:0]                             exe_csr_waddr;
-
+    wire                                    exe_tlbrd;
     wire                                    mem_csr_we;
     wire [13:0]                             mem_csr_waddr;
-
+    wire                                    mem_tlbrd;
     wire                                    wb_csr_we;
     wire [13:0]                             wb_csr_waddr;
-
+    wire                                    wb_tlbrd;
     wire                                    csr_blk;
-            
-
+    wire                                    id_refetch_flg;
+    wire [4:0]                              invtlb_op;
 
 //�����źŵĸ�ֵ
     assign id_ready_go = ~csr_blk & ~( exe_en_block & ((exe_dest==rf_raddr1) & addr1_valid //untest
                                     |(exe_dest==rf_raddr2) & addr2_valid)) 
                                     & ~( mem_en_block & ((mem_dest==rf_raddr1) & addr1_valid //untest
                                     |(mem_dest==rf_raddr2) & addr2_valid));//in case of load
-    reg exc_reg;
-    reg ertn_reg;
+    reg flush_r;
     always @(posedge clk) begin
-        if (~resetn) begin
-            exc_reg <= 1'b0;
-            ertn_reg <= 1'b0;
-        end 
-        else if (wb_exc) begin
-            exc_reg <= 1'b1;
-        end 
-        else if (ertn_flush) begin
-            ertn_reg <= 1'b1;
-        end 
-        else if (if_id_valid & id_allowin)begin
-            exc_reg <= 1'b0;
-            ertn_reg <= 1'b0;
-        end 
+        if(~resetn)begin
+            flush_r<=1'b0;
+        end
+        else if(flush)begin
+            flush_r<=1'b1;
+        end
+         else if (if_id_valid && id_allowin) begin
+            flush_r<=1'b0;
+        end
     end
 
 
-    assign is_ertn_exc = (wb_exc | ertn_flush | exc_reg | ertn_reg);
+    assign is_ertn_exc = (flush|flush_r);
     assign id_exe_valid = id_ready_go && id_valid &  ~is_ertn_exc;
     assign id_allowin = id_ready_go && exe_allowin || ~id_valid;
     always @(posedge clk ) begin
@@ -124,7 +120,12 @@ module ID (
         if_exc_type, id_pc, id_inst
     } = if_id_bus_vld;
     assign id_exe_bus = {
-        id_rdcn, inst_rdcntvh_w, //lzc: new added
+        id_refetch_flg, inst_tlbsrch,
+        inst_tlbrd, inst_tlbwr,
+        inst_tlbfill, inst_invtlb,
+        invtlb_op, rj_value,
+        //new add
+        id_rdcn, inst_rdcntvh_w, 
         id_csr_we, id_csr_re, id_csr_waddr, id_csr_wmask, id_csr_wdata, id_csr_rdata,   //112 bits
         inst_ertn, id_exc_type,                                                         //7 bits
         id_gr_we, id_mem_we, id_res_from_mem, 
@@ -191,7 +192,11 @@ module ID (
     wire        inst_ld_hu;
     wire        inst_st_b;
     wire        inst_st_h;    
-
+    wire        inst_tlbsrch;
+    wire        inst_tlbrd;
+    wire        inst_tlbwr;
+    wire        inst_tlbfill;
+    wire        inst_invtlb;
     /************************/
     //�쳣&�ж�
     wire        inst_syscall;
@@ -311,8 +316,6 @@ module ID (
     assign inst_st_b   = op_31_26_d[6'h0a] & op_25_22_d[4'h4];
     assign inst_st_h   = op_31_26_d[6'h0a] & op_25_22_d[4'h5];
 
-    /************************/
-    //�쳣&�ж�
     assign inst_syscall= op_31_26_d[6'b000000] & op_25_22_d[4'b0000] & op_21_20_d[2'b10] & op_19_15_d[5'b10110];
     assign inst_csrrd  = (id_inst[31:24]==8'b00000100) & (rj==5'b00000);
     assign inst_csrwr  = (id_inst[31:24]==8'b00000100) & (rj==5'b00001);
@@ -324,7 +327,13 @@ module ID (
     assign inst_rdcntvl_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'b00] & op_19_15_d[5'h00] & rk == 5'h18 & rj == 5'h00;
     assign inst_rdcntvh_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'b00] & op_19_15_d[5'h00] & rk == 5'h19 & rj == 5'h00;
     
-    /************************/
+    /***********************exp18*/
+    assign inst_tlbsrch = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0] & op_19_15_d[5'h10] & rk == 5'h0a;
+    assign inst_tlbrd   = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0] & op_19_15_d[5'h10] & rk == 5'h0b;
+    assign inst_tlbwr   = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0] & op_19_15_d[5'h10] & rk == 5'h0c;
+    assign inst_tlbfill = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0] & op_19_15_d[5'h10] & rk == 5'h0d;
+    assign inst_invtlb  = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0] & op_19_15_d[5'h13];
+    /***********************exp18*/
     assign is_b = inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_bl | inst_jirl | inst_b;
 
     assign id_alu_op[ 0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w
@@ -398,7 +407,8 @@ module ID (
     assign id_gr_we         = ~inst_st_w & ~inst_beq & ~inst_bne & ~inst_b &
                               ~inst_st_b & ~inst_st_h & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu & //change 4
                               ~inst_syscall & ~inst_ertn & 
-                              ~inst_break & ~id_exc_type[`TYPE_INE]; //add
+                              ~inst_break & ~id_exc_type[`TYPE_INE] &
+                              ~inst_tlbrd & ~inst_tlbwr & ~inst_tlbfill & ~inst_tlbsrch & ~inst_invtlb;//exp18add
     assign id_mem_we        = inst_st_w | inst_st_b | inst_st_h;                                 //change 5
     assign id_dest          = dst_is_r1 ? 5'd1 :  inst_rdcntid_w ? rj : rd;
 
@@ -452,18 +462,25 @@ module ID (
                             (rf_we         & (rf_waddr == rf_raddr2) & addr2_valid & |rf_raddr2)? rf_wdata  : rf_rdata2;
 
     //csr�Ĵ���
-    assign {exe_csr_we, exe_ertn, exe_csr_waddr} = exe_csr_blk_bus;
-    assign {mem_csr_we, mem_ertn, mem_csr_waddr} = mem_csr_blk_bus;
-    assign {wb_csr_we, ertn_flush, wb_csr_waddr}    = wb_csr_blk_bus;
+    wire exe_ertn;
+    wire mem_ertn;
+    wire wb_ertn;
+    assign {exe_csr_we, exe_ertn, exe_tlbrd, exe_csr_waddr} = exe_csr_blk_bus;
+    assign {mem_csr_we, mem_ertn, mem_tlbrd, mem_csr_waddr} = mem_csr_blk_bus;
+    assign {wb_csr_we, wb_ertn, wb_csr_waddr}    = wb_csr_blk_bus;
 
-    assign csr_blk = id_csr_re & (//�����ź�
-                        exe_csr_we&csr_raddr==exe_csr_waddr&(|exe_csr_waddr)|
-                        mem_csr_we&csr_raddr==mem_csr_waddr&(|mem_csr_waddr)|
-                        wb_csr_we&csr_raddr==wb_csr_waddr&(|wb_csr_waddr)|
-                        (ertn_flush)&(exe_csr_waddr==`CSR_ERA|exe_csr_waddr==`CSR_PRMD|csr_raddr==`CSR_CRMD)|
-                        (ertn_flush)&(mem_csr_waddr==`CSR_ERA|mem_csr_waddr==`CSR_PRMD|csr_raddr==`CSR_CRMD)|
-                        (ertn_flush)&(wb_csr_waddr==`CSR_ERA|wb_csr_waddr==`CSR_PRMD|csr_raddr==`CSR_CRMD)//jyh
-                    );
+    assign csr_blk = id_csr_re & (exe_csr_blk | mem_csr_blk | wb_csr_blk);
+    assign exe_csr_blk = exe_csr_we    &&  csr_raddr == exe_csr_waddr && exe_csr_waddr != 0 ||
+                        exe_ertn      &&  csr_raddr == `CSR_CRMD                       ||
+                        inst_ertn    && (exe_csr_waddr == `CSR_ERA  || exe_csr_waddr == `CSR_PRMD)  ||
+                        inst_tlbsrch && (exe_csr_waddr == `CSR_ASID || exe_csr_waddr == `CSR_TLBEHI || exe_tlbrd);
+    assign mem_csr_blk = mem_csr_we    &&  csr_raddr == mem_csr_waddr && mem_csr_waddr != 0 ||
+                        mem_ertn      &&  csr_raddr == `CSR_CRMD                       ||
+                        inst_ertn    && (mem_csr_waddr == `CSR_ERA  || mem_csr_waddr == `CSR_PRMD)  ||
+                        inst_tlbsrch && (mem_csr_waddr == `CSR_ASID || mem_csr_waddr == `CSR_TLBEHI || mem_tlbrd);
+    assign wb_csr_blk = wb_csr_we &&  csr_raddr == wb_csr_waddr && wb_csr_waddr != 0 ||
+                        wb_ertn   &&  csr_raddr == `CSR_CRMD                       ||
+                        inst_ertn && (wb_csr_waddr == `CSR_ERA || wb_csr_waddr == `CSR_PRMD);
 
 //��дregfile�Ĵ���
   assign {
@@ -501,7 +518,13 @@ module ID (
                             {32{id_csr_waddr == `CSR_BADV  }} & `CSR_MASK_BADV   |
                             {32{id_csr_waddr == `CSR_TID   }} & `CSR_MASK_TID    |
                             {32{id_csr_waddr == `CSR_TCFG  }} & `CSR_MASK_TCFG   |
-                            {32{id_csr_waddr == `CSR_TICLR }} & `CSR_MASK_TICLR;
+                            {32{id_csr_waddr == `CSR_TICLR }} & `CSR_MASK_TICLR  |
+                            {32{id_csr_waddr == `CSR_TLBIDX}} & `CSR_MASK_TLBIDX  |
+                            {32{id_csr_waddr == `CSR_TLBELO0 ||
+                                id_csr_waddr == `CSR_TLBELO1}} & `CSR_MASK_TLBELO |
+                            {32{id_csr_waddr == `CSR_TLBEHI}} & `CSR_MASK_TLBEHI |
+                            {32{id_csr_waddr == `CSR_ASID  }} & `CSR_MASK_ASID   |
+                            {32{id_csr_waddr == `CSR_TLBRENTRY}} & `CSR_MASK_TLBRENTRY;
 
 
 //�жϺ��쳣��־
@@ -510,15 +533,19 @@ module ID (
     assign  id_exc_type[`TYPE_ADEF]=if_exc_type[`TYPE_ADEF];
     assign  id_exc_type[`TYPE_ALE]=1'b0;
     assign  id_exc_type[`TYPE_BRK]=inst_break;
-    assign  id_exc_type[`TYPE_INE]=~(id_exc_type[`TYPE_ADEF]) & ~(inst_add_w | inst_sub_w | inst_slt | inst_sltu | 
+    assign  id_exc_type[`TYPE_INE]=(~(inst_add_w | inst_sub_w | inst_slt | inst_sltu | 
     inst_nor | inst_and | inst_or | inst_xor | inst_slti | inst_sltui | inst_andi | inst_ori | inst_xori | inst_sll_w |
     inst_srl_w | inst_sra_w | inst_slli_w | inst_srli_w | inst_srai_w | inst_addi_w | inst_pcaddu12i | inst_ld_w |
     inst_st_w | inst_jirl | inst_b | inst_bl | inst_beq | inst_bne | inst_lu12i_w | inst_mul_w | inst_mulh_w|
     inst_mulh_wu | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu |
     inst_st_b | inst_st_h | inst_syscall | inst_csrrd | inst_csrwr | inst_csrxchg | inst_ertn | inst_break |
-    inst_rdcntid_w | inst_rdcntvl_w | inst_rdcntvh_w | inst_mod_w | inst_mod_wu | inst_div_w | inst_div_wu);
+    inst_rdcntid_w | inst_rdcntvl_w | inst_rdcntvh_w | inst_mod_w | inst_mod_wu | inst_div_w | inst_div_wu |
+    inst_invtlb | inst_tlbrd | inst_tlbwr | inst_tlbfill | inst_tlbsrch) | (inst_invtlb && (invtlb_op > 5'b00110)))
+    &~id_exc_type[`TYPE_ADEF];
     assign  id_exc_type[`TYPE_INT]=csr_has_int;
     /**new added**/
 //add
-
+//exp18 add
+    assign id_refetch_flg = inst_tlbfill || inst_tlbwr || inst_tlbrd || inst_invtlb || id_csr_we && (id_csr_waddr == `CSR_CRMD || id_csr_waddr == `CSR_ASID);
+    assign invtlb_op = rd;
 endmodule

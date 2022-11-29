@@ -87,26 +87,42 @@ module mycpu_top(
     wire    [31:0]                          wb_badvaddr;
     wire                                    ldst_cancel;
 
+    wire                                    refetch_flush;
+
+    wire                                    flush;
+    wire [31:0]                             wb_flush_target;
+
+    wire [ 9:0]                             csr_asid_asid;
+    wire [18:0]                             csr_tlbehi_vppn;
+    wire [ 3:0]                             csr_tlbidx_index;
+
+    wire                                    tlbrd_we;
+    wire                                    tlbsrch_we;
+    wire                                    tlbwr_we;
+    wire                                    tlbfill_we;
+    wire                                    tlbsrch_hit;
+    wire [ 3:0]                             tlbsrch_hit_index;
+
     // inst sram interface
-    wire            inst_sram_req;
-    wire            inst_sram_wr;
-    wire  [ 1:0]    inst_sram_size;
-    wire  [31:0]    inst_sram_addr;
-    wire  [ 3:0]    inst_sram_wstrb;
-    wire  [31:0]    inst_sram_wdata;
-    wire            inst_sram_addr_ok;
-    wire            inst_sram_data_ok;
-    wire [31:0]     inst_sram_rdata;
+    wire                                    inst_sram_req;
+    wire                                    inst_sram_wr;
+    wire  [ 1:0]                            inst_sram_size;
+    wire  [31:0]                            inst_sram_addr;
+    wire  [ 3:0]                            inst_sram_wstrb;
+    wire  [31:0]                            inst_sram_wdata;
+    wire                                    inst_sram_addr_ok;
+    wire                                    inst_sram_data_ok;
+    wire [31:0]                             inst_sram_rdata;
     // data sram interface
-    wire            data_sram_req;
-    wire            data_sram_wr;
-    wire  [ 1:0]    data_sram_size;
-    wire  [31:0]    data_sram_addr;
-    wire  [ 3:0]    data_sram_wstrb;
-    wire  [31:0]    data_sram_wdata;
-    wire            data_sram_addr_ok;
-    wire            data_sram_data_ok;
-    wire [31:0]     data_sram_rdata;
+    wire                                    data_sram_req;
+    wire                                    data_sram_wr;
+    wire  [ 1:0]                            data_sram_size;
+    wire  [31:0]                            data_sram_addr;
+    wire  [ 3:0]                            data_sram_wstrb;
+    wire  [31:0]                            data_sram_wdata;
+    wire                                    data_sram_addr_ok;
+    wire                                    data_sram_data_ok;
+    wire [31:0]                             data_sram_rdata;
 
     //模块调用
     AXI_bridge my_AXI_bridge(
@@ -189,10 +205,8 @@ module mycpu_top(
         .inst_sram_wdata    (inst_sram_wdata),
         .inst_sram_addr_ok  (inst_sram_addr_ok),
         .inst_sram_data_ok  (inst_sram_data_ok),
-        .wb_exc             (wb_exc),
-        .ertn_flush         (ertn_flush),
-        .exc_entaddr        (exc_entaddr),
-        .exc_retaddr        (exc_retaddr)
+        .flush           (flush),
+        .wb_flush_addr      (wb_flush_addr)
     );
     ID my_ID (
         .clk                (aclk),
@@ -207,13 +221,13 @@ module mycpu_top(
         .wb_id_bus          (wb_id_bus),
         .exe_wr_bus         (exe_wr_bus),
         .mem_wr_bus         (mem_wr_bus),
-        .wb_exc             (wb_exc),
         .csr_rdata          (csr_rdata),
         .csr_raddr          (csr_raddr),
         .exe_csr_blk_bus    (exe_csr_blk_bus),
         .mem_csr_blk_bus    (mem_csr_blk_bus),
         .wb_csr_blk_bus     (wb_csr_blk_bus),
-        .csr_has_int        (csr_has_int)
+        .csr_has_int        (csr_has_int),
+        .flush           (flush)
     );
     EXE my_EXE (
         .clk                (aclk),
@@ -233,11 +247,17 @@ module mycpu_top(
         .data_sram_addr_ok  (data_sram_addr_ok),
         .exe_wr_bus         (exe_wr_bus),
         .exe_csr_blk_bus    (exe_csr_blk_bus),
-        .wb_exc             (wb_exc),
-        .ertn_flush         (ertn_flush),
+        .flush           (flush),
         .mem_ertn           (mem_ertn),
         .mem_exc            (mem_exc),
-        .ldst_cancel        (ldst_cancel)
+        .ldst_cancel        (ldst_cancel),
+        .s1_va_highbits     ({s1_vppn,s1_va_bit12}),
+        .s1_asid            (s1_asid),
+        .invtlb_valid       (invtlb_valid),
+        .invtlb_op          (invtlb_op),
+        .csr_asid_asid      (csr_asid_asid),
+        .csr_tlbehi_vppn    (csr_tlbehi_vppn)
+
     );
     MEM my_MEM (
         .clk                (aclk),
@@ -252,11 +272,12 @@ module mycpu_top(
         .data_sram_data_ok  (data_sram_data_ok),
         .mem_wr_bus         (mem_wr_bus),
         .mem_csr_blk_bus    (mem_csr_blk_bus),
-        .wb_exc             (wb_exc),
         .mem_ertn           (mem_ertn),
-        .ertn_flush         (ertn_flush),
         .mem_exc            (mem_exc),
-        .ldst_cancel        (ldst_cancel)
+        .ldst_cancel        (ldst_cancel),
+        .flush           (flush),
+        .s1_found           (s1_found),
+        .s1_index           (s1_index)
     );
     WB my_WB (
         .clk                (aclk),
@@ -279,7 +300,18 @@ module mycpu_top(
         .wb_pc              (wb_pc),
         .ertn_flush         (ertn_flush),
         .wb_csr_blk_bus     (wb_csr_blk_bus),
-        .wb_badvaddr        (wb_badvaddr)    
+        .wb_badvaddr        (wb_badvaddr),
+        .refetch_flush      (refetch_flush     ),
+        .r_index            (r_index),
+        .tlbrd_we           (tlbrd_we),
+        .csr_tlbidx_index   (csr_tlbidx_index),
+        .tlbwr_we           (tlbwr_we),
+        .tlbfill_we         (tlbfill_we),
+        .w_index            (w_index),
+        .we                 (we),
+        .tlbsrch_we         (tlbsrch_we),
+        .tlbsrch_hit        (tlbsrch_hit),
+        .tlbsrch_hit_index  (tlbsrch_hit_index) 
     );
     csr my_csr(
         .clk                (aclk),
@@ -298,6 +330,182 @@ module mycpu_top(
         .has_int            (csr_has_int),
         .exc_entaddr        (exc_entaddr),
         .exc_retaddr        (exc_retaddr),
-        .wb_badvaddr        (wb_badvaddr)
+        .wb_badvaddr        (wb_badvaddr),
+        .csr_asid_asid   (csr_asid_asid),
+        .csr_tlbehi_vppn (csr_tlbehi_vppn),
+        .csr_tlbidx_index(csr_tlbidx_index),
+
+        .tlbsrch_we      (tlbsrch_we),
+        .tlbsrch_hit     (tlbsrch_hit),
+        .tlb_hit_index   (tlbsrch_hit_index),
+        .tlbrd_we        (tlbrd_we),
+        .tlbwr_we        (tlbwr_we),
+        .tlbfill_we      (tlbfill_we),
+
+        .r_tlb_e         (r_e),
+        .r_tlb_ps        (r_ps),
+        .r_tlb_vppn      (r_vppn),
+        .r_tlb_asid      (r_asid),
+        .r_tlb_g         (r_g),
+        .r_tlb_ppn0      (r_ppn0),
+        .r_tlb_plv0      (r_plv0),
+        .r_tlb_mat0      (r_mat0),
+        .r_tlb_d0        (r_d0),
+        .r_tlb_v0        (r_v0),
+        .r_tlb_ppn1      (r_ppn1),
+        .r_tlb_plv1      (r_plv1),
+        .r_tlb_mat1      (r_mat1),
+        .r_tlb_d1        (r_d1),
+        .r_tlb_v1        (r_v1),
+
+        .w_tlb_e         (w_e),
+        .w_tlb_ps        (w_ps),
+        .w_tlb_vppn      (w_vppn),
+        .w_tlb_asid      (w_asid),
+        .w_tlb_g         (w_g),
+        .w_tlb_ppn0      (w_ppn0),
+        .w_tlb_plv0      (w_plv0),
+        .w_tlb_mat0      (w_mat0),
+        .w_tlb_d0        (w_d0),
+        .w_tlb_v0        (w_v0),
+        .w_tlb_ppn1      (w_ppn1),
+        .w_tlb_plv1      (w_plv1),
+        .w_tlb_mat1      (w_mat1),
+        .w_tlb_d1        (w_d1),
+        .w_tlb_v1        (w_v1)
     );
+    //TLB
+    tlb #(.TLBNUM(16)) 
+        my_tlb(
+        .clk        (aclk),
+
+        .s0_vppn    (s0_vppn),
+        .s0_va_bit12(s0_va_bit12),
+        .s0_asid    (s0_asid),
+        .s0_found   (s0_found),
+        .s0_index   (s0_index),
+        .s0_ppn     (s0_ppn),
+        .s0_ps      (s0_ps),
+        .s0_plv     (s0_plv),
+        .s0_mat     (s0_mat),
+        .s0_d       (s0_d),
+        .s0_v       (s0_v),
+
+        .s1_vppn    (s1_vppn),
+        .s1_va_bit12(s1_va_bit12),
+        .s1_asid    (s1_asid),
+        .s1_found   (s1_found),
+        .s1_index   (s1_index),
+        .s1_ppn     (s1_ppn),
+        .s1_ps      (s1_ps),
+        .s1_plv     (s1_plv),
+        .s1_mat     (s1_mat),
+        .s1_d       (s1_d),
+        .s1_v       (s1_v),
+
+        .invtlb_op  (invtlb_op),
+        .invtlb_valid(invtlb_valid),
+
+        .we         (we),
+        .w_index    (w_index),
+        .w_e        (w_e),
+        .w_vppn     (w_vppn),
+        .w_ps       (w_ps),
+        .w_asid     (w_asid),
+        .w_g        (w_g),
+
+        .w_ppn0     (w_ppn0),
+        .w_plv0     (w_plv0),
+        .w_mat0     (w_mat0),
+        .w_d0       (w_d0),
+        .w_v0       (w_v0),
+
+        .w_ppn1     (w_ppn1),
+        .w_plv1     (w_plv1),
+        .w_mat1     (w_mat1),
+        .w_d1       (w_d1),
+        .w_v1       (w_v1),
+
+        .r_index    (r_index),
+        .r_e        (r_e),
+        .r_vppn     (r_vppn),
+        .r_ps       (r_ps),
+        .r_asid     (r_asid),
+        .r_g        (r_g),
+
+        .r_ppn0     (r_ppn0),
+        .r_plv0     (r_plv0),
+        .r_mat0     (r_mat0),
+        .r_d0       (r_d0),
+        .r_v0       (r_v0),
+
+        .r_ppn1     (r_ppn1),
+        .r_plv1     (r_plv1),
+        .r_mat1     (r_mat1),
+        .r_d1       (r_d1),
+        .r_v1       (r_v1)
+    );
+    wire [18:0]                         s0_vppn;
+    wire                                s0_va_bit12;
+    wire [ 9:0]                         s0_asid;
+    wire                                s0_found;
+    wire [ 3:0]                         s0_index;
+    wire [19:0]                         s0_ppn;
+    wire [ 5:0]                         s0_ps;
+    wire [ 1:0]                         s0_plv;
+    wire [ 1:0]                         s0_mat;
+    wire                                s0_d;
+    wire                                s0_v;
+    wire [18:0]                         s1_vppn;
+    wire                                s1_va_bit12;
+    wire [ 9:0]                         s1_asid;
+    wire                                s1_found;
+    wire [ 3:0]                         s1_index;
+    wire [19:0]                         s1_ppn;
+    wire [ 5:0]                         s1_ps;
+    wire [ 1:0]                         s1_plv;
+    wire [ 1:0]                         s1_mat;
+    wire                                s1_d;
+    wire                                s1_v;
+    wire [ 4:0]                         invtlb_op;
+    wire                                invtlb_valid;
+    wire                                we;
+    wire [ 3:0]                         w_index;
+    wire                                w_e;
+    wire [18:0]                         w_vppn;
+    wire [ 5:0]                         w_ps;
+    wire [ 9:0]                         w_asid;
+    wire                                w_g;
+    wire [19:0]                         w_ppn0;
+    wire [ 1:0]                         w_plv0;
+    wire [ 1:0]                         w_mat0;
+    wire                                w_d0;
+    wire                                w_v0;
+    wire [19:0]                         w_ppn1;
+    wire [ 1:0]                         w_plv1;
+    wire [ 1:0]                         w_mat1;
+    wire                                w_d1;
+    wire                                w_v1;
+    wire [ 3:0]                         r_index;
+    wire                                r_e;
+    wire [18:0]                         r_vppn;
+    wire [ 5:0]                         r_ps;
+    wire [ 9:0]                         r_asid;
+    wire                                r_g;
+    wire [19:0]                         r_ppn0;
+    wire [ 1:0]                         r_plv0;
+    wire [ 1:0]                         r_mat0;
+    wire                                r_d0;
+    wire                                r_v0;
+    wire [19:0]                         r_ppn1;
+    wire [ 1:0]                         r_plv1;
+    wire [ 1:0]                         r_mat1;
+    wire                                r_d1;
+    wire                                r_v1;
+
+    wire [31:0] wb_flush_addr;
+
+    assign flush = wb_exc | ertn_flush | refetch_flush;
+    assign wb_flush_addr = wb_exc     ? exc_entaddr     : refetch_flush ? wb_pc + 32'h4 :
+                             exc_retaddr;
 endmodule

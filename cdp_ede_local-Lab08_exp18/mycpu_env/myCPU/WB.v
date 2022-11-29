@@ -1,5 +1,5 @@
 `include "mycpu.h"
-//写回寄存器
+//写回寄存�?
 module WB (
     input                                   clk,
     input                                   resetn,
@@ -26,8 +26,19 @@ module WB (
     output                                  ertn_flush,
     output  [`WB_CSR_BLK_BUS_WDTH - 1:0]    wb_csr_blk_bus,
 
-    //NEW ADDED
-    output  [31:0]                          wb_badvaddr
+    output  [31:0]                          wb_badvaddr,
+    //new
+    output                                  refetch_flush,
+    output [ 3:0]                           r_index,
+    output                                  tlbrd_we,
+    input  [ 3:0]                           csr_tlbidx_index,
+    output                                  tlbwr_we,
+    output                                  tlbfill_we,
+    output [ 3:0]                           w_index,
+    output                                  we,
+    output                                  tlbsrch_we,
+    output                                  tlbsrch_hit,
+    output [ 3:0]                           tlbsrch_hit_index
 );
 //信号定义
     //控制信号
@@ -43,10 +54,10 @@ module WB (
     wire    [  4:0]                         rf_waddr;
     wire    [ 31:0]                         rf_wdata;
     wire    [  4:0]                         wb_dest;
-    //中断和异常标志
+    //中断和异常标�?
     wire    [  5:0]                         mem_exc_type;
     wire    [  5:0]                         wb_exc_type;
-//控制信号的赋值
+//控制信号的赋�?
     assign wb_ready_go = 1'b1;
     assign wb_allowin = wb_ready_go | ~wb_valid;
     always @(posedge clk ) begin
@@ -67,10 +78,15 @@ module WB (
         end
     end
     assign  {
+        wb_refetch, wb_inst_tlbsrch,
+        wb_inst_tlbrd, wb_inst_tlbwr,
+        wb_inst_tlbfill, wb_tlbsrch_hit,
+        wb_tlbsrch_hit_index,
+        //new
         wb_csr_we, wb_csr_waddr, wb_csr_wmask, wb_csr_wdata, wb_inst_ertn, mem_exc_type,
         wb_gr_we, wb_pc, wb_inst, wb_final_result, wb_dest
     } = mem_wb_bus_vld;
-//写数据
+//写数�?
     assign  rf_we = wb_valid & wb_gr_we & ~is_ertn_exc; 
     assign  rf_waddr = wb_dest; 
     assign  rf_wdata = wb_final_result;
@@ -103,32 +119,49 @@ module WB (
     assign  debug_wb_rf_we = {4{rf_we}};
     assign  debug_wb_rf_wnum = rf_waddr;
     assign  debug_wb_rf_wdata = rf_wdata;
-//中断和异常标志
+//中断和异常标�?
     assign  wb_exc_type = mem_exc_type;
 
-/**new added**/
-//badvaddr
 assign wb_badvaddr = wb_final_result;
-/**new added**/
-//add
-    reg exc_reg;
-    reg ertn_reg;
-    assign is_ertn_exc = wb_exc | ertn_flush | exc_reg | ertn_reg;
+    reg flush_r;
+    assign is_ertn_exc = wb_exc | ertn_flush | flush_r;
     always @(posedge clk) begin
         if (~resetn) begin
-            exc_reg <= 1'b0;
-            ertn_reg <= 1'b0;
-        end 
-        else if (wb_exc) begin
-            exc_reg <= 1'b1;
-        end 
-        else if (ertn_flush) begin
-            ertn_reg <= 1'b1;
-        end 
-        else if (mem_wb_valid & wb_allowin)begin
-            exc_reg <= 1'b0;
-            ertn_reg <= 1'b0;
+            flush_r <= 1'b0;
+        end else if (wb_exc | ertn_flush) begin
+            flush_r <= 1'b1;
+        end else if (mem_wb_valid & wb_allowin) begin
+            flush_r <= 1'b0;
         end
     end
-    
+    wire        wb_refetch;
+    wire        wb_inst_tlbsrch;
+    wire        wb_inst_tlbrd;
+    wire        wb_inst_tlbwr;
+    wire        wb_inst_tlbfill;
+    wire        wb_tlbsrch_hit;
+    wire [ 3:0] wb_tlbsrch_hit_index;
+    reg  [ 3:0] random;
+    assign      refetch_flush = wb_refetch && wb_valid;
+    always @ (posedge clk) begin
+        if (~resetn) begin
+            random <= 4'b0;
+        end else if(random == 4'b1111)
+        begin
+            random <=4'b0;
+        end
+        else begin
+            random <=random+4'b1;
+        end
+        
+    end
+    assign tlbrd_we = wb_inst_tlbrd;
+    assign tlbwr_we = wb_inst_tlbwr;
+    assign tlbsrch_we = wb_inst_tlbsrch;
+    assign tlbsrch_hit = wb_tlbsrch_hit;
+    assign tlbsrch_hit_index = wb_tlbsrch_hit_index;
+    assign r_index = csr_tlbidx_index;
+    assign tlbfill_we = wb_inst_tlbfill;
+    assign w_index = tlbwr_we ? csr_tlbidx_index : random;
+    assign we = tlbwr_we | tlbfill_we;
 endmodule

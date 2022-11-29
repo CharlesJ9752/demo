@@ -19,10 +19,12 @@ module MEM (
     output                                  mem_exc,
     output  [`MEM_CSR_BLK_BUS_WDTH - 1:0]   mem_csr_blk_bus,
     //中断和异常信�?
-    input                                   wb_exc,
-    input                                   ertn_flush,
-    output                                  mem_ertn        ,
-    output                                  ldst_cancel 
+    input                                   flush,
+    output                                  mem_ertn,
+    output                                  ldst_cancel,
+    //tlb
+    input                                   s1_found,
+    input  [ 3:0]                           s1_index
 );
 //����
 wire mem_en_block;
@@ -57,10 +59,18 @@ assign mem_en_block=is_load & mem_valid;
     wire    [31:0]                          mem_csr_rdata;
     wire    [31:0]                          mem_csr_wmask;
     //中断和异常标�?
-    wire    [`NUM_TYPES - 1:0]               exe_exc_type;
-    wire    [`NUM_TYPES - 1:0]               mem_exc_type;
+    wire    [`NUM_TYPES - 1:0]              exe_exc_type;
+    wire    [`NUM_TYPES - 1:0]              mem_exc_type;
     wire                                    ls_cancel;
     wire                                    mem_we;
+    reg                                     flush_r;
+    wire                                    mem_refetch_flg;
+    wire                                    mem_inst_tlbsrch;
+    wire                                    mem_inst_tlbrd;
+    wire                                    mem_inst_tlbwr;
+    wire                                    mem_inst_tlbfill;
+    wire                                    mem_tlbsrch_hit;
+    wire    [3:0]                           mem_tlbsrch_hit_idx;
 //控制信号的赋�?
     assign  mem_ready_go = (is_load | mem_we) ?  (|mem_exc_type) | ls_cancel | data_sram_data_ok : 1'b1;
     assign  mem_wb_valid = mem_ready_go & mem_valid &  ~is_ertn_exc;
@@ -81,12 +91,23 @@ assign mem_en_block=is_load & mem_valid;
             exe_mem_bus_vld <= exe_mem_bus;
         end
     end
-    assign {mem_csr_we,mem_csr_waddr,mem_csr_wmask,
+    assign {
+        mem_refetch_flg, mem_inst_tlbsrch, 
+        mem_inst_tlbrd, mem_inst_tlbwr,
+        mem_inst_tlbfill,
+        //new add
+        mem_csr_we,mem_csr_waddr,mem_csr_wmask,
          mem_csr_wdata,mem_inst_ertn,exe_exc_type,
         mem_gr_we, res_from_mem, mem_dest,
         mem_pc, mem_inst, exe_to_mem_result,ls_cancel,mem_we
     } = exe_mem_bus_vld;
-    assign  mem_wb_bus = {mem_csr_we,mem_csr_waddr,
+    assign  mem_wb_bus = {
+        mem_refetch_flg, mem_inst_tlbsrch,
+        mem_inst_tlbrd, mem_inst_tlbwr,
+        mem_inst_tlbfill, mem_tlbsrch_hit,
+        mem_tlbsrch_hit_idx,
+        //new add
+        mem_csr_we,mem_csr_waddr,
         mem_csr_wmask,mem_csr_wdata,mem_inst_ertn,mem_exc_type,
         mem_gr_we, mem_pc, mem_inst, mem_final_result, mem_dest
     };
@@ -125,30 +146,24 @@ assign mem_en_block=is_load & mem_valid;
 //阻塞和前�?
     assign  mem_en_bypass = mem_valid & mem_gr_we;
     assign  mem_wr_bus = {mem_en_bypass,mem_en_block, mem_dest, mem_final_result};
-    assign  mem_csr_blk_bus= {mem_csr_we & mem_valid, mem_ertn, mem_csr_waddr};
+    assign  mem_csr_blk_bus= {mem_csr_we & mem_valid, mem_ertn, mem_inst_tlbrd && mem_valid,mem_csr_waddr};
 //中断和异常标�?
     assign mem_exc_type = exe_exc_type;
     assign mem_ertn = mem_valid & mem_inst_ertn;
+//refetch
+    assign mem_refetch = mem_refetch_flg & mem_valid;
 //add
-    assign ldst_cancel = mem_exc|mem_ertn;
-    assign is_ertn_exc = wb_exc | ertn_flush | exc_reg | ertn_reg;
-    reg     exc_reg;
-    reg     ertn_reg;
+    assign ldst_cancel = mem_exc|mem_ertn|mem_refetch;
+    assign is_ertn_exc = flush | flush_r;
     always @(posedge clk) begin
         if (~resetn) begin
-            exc_reg <= 1'b0;
-            ertn_reg <= 1'b0;
-        end 
-        else if (wb_exc) begin
-            exc_reg <= 1'b1;
-        end 
-        else if (ertn_flush) begin
-            ertn_reg <= 1'b1;
-        end 
-        else if (exe_mem_valid & mem_allowin)begin
-            exc_reg <= 1'b0;
-            ertn_reg <= 1'b0;
+            flush_r <= 1'b0;
+        end else if (flush) begin
+            flush_r <= 1'b1;
+        end else if (exe_mem_valid && mem_allowin) begin
+            flush_r <= 1'b0;
         end
     end
-    
+    assign mem_tlbsrch_hit = s1_found;
+    assign mem_tlbsrch_hit_idx = s1_index;
 endmodule

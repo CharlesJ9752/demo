@@ -19,10 +19,8 @@ module IF (
     input                            inst_sram_data_ok,
     input  [31:0]                    inst_sram_rdata,
     //异常&中断
-    input                           wb_exc,
-    input                           ertn_flush,
-    input   [31:0]                  exc_entaddr,//中断处理程序入口地址
-    input   [31:0]                  exc_retaddr//中断处理程序结束后的出口地址
+    input                           flush,
+    input   [31:0]                  wb_flush_addr
 );
 //跳转
     wire                            br_stall;
@@ -49,14 +47,13 @@ module IF (
     assign  to_pf_valid = 1'b1;
     assign  pf_allowin  = 1'b1;//untest
     assign  pf_if_valid = pf_ready_go & pf_valid;
-    assign  pf_ready_go =  (inst_sram_addr_ok && inst_sram_req) && ~(((pf_ertn_reg||pf_exc_reg||stall_reg)&&cancel) 
-                                                                     ||br_stall||wb_exc||ertn_flush);//untest
+    assign  pf_ready_go =  (inst_sram_addr_ok && inst_sram_req) && ~(((pf_wb_flush_r || stall_reg) && cancel) || flush || br_stall);   
+    
     //生成pc
     wire    [31:0]                  pf_seqpc;
     wire    [31:0]                  pf_nextpc;
     reg     [31:0]                  pf_pc;
-    assign  pf_nextpc = wb_exc     ?    exc_entaddr   : pf_exc_reg              ?  pf_entaddr_reg :
-                        ertn_flush ?    exc_retaddr   : pf_ertn_reg             ?  pf_retaddr_reg :
+    assign  pf_nextpc = flush ?      wb_flush_addr : pf_wb_flush_r ?         flush_addr_reg :
                         br_reg ?        br_target_reg : br_taken & ~br_stall ?  br_target   :
                         pf_seqpc;
     assign  pf_seqpc = pf_pc + 3'h4;
@@ -69,13 +66,11 @@ module IF (
         end
     end
     //中断返回、中断陷入和跳转的地址
-    reg                             pf_exc_reg;
-    reg     [31:0]                  pf_entaddr_reg;
-    reg                             pf_ertn_reg;
-    reg     [31:0]                  pf_retaddr_reg;
     reg                             br_reg;
     reg     [31:0]                  br_target_reg;
     reg                             stall_reg;
+    reg                             pf_wb_flush_r;
+    reg     [31:0]                  flush_addr_reg;
     //控制信号
     always @(posedge clk) begin
         if (~resetn) begin
@@ -92,18 +87,14 @@ module IF (
     end
     always @(posedge clk) begin
         if (~resetn) begin
-            pf_exc_reg <= 1'b0;
-            pf_ertn_reg <= 1'b0;
-        end 
-        else if (wb_exc) begin
-            pf_exc_reg <= 1'b1;
-        end 
-        else if (ertn_flush) begin
-            pf_ertn_reg <= 1'b1;
-        end 
-        else if (inst_sram_addr_ok && if_allowin && ~cancel)begin
-            pf_exc_reg <= 1'b0;
-            pf_ertn_reg <= 1'b0;
+            pf_wb_flush_r <= 1'b0;
+            flush_addr_reg <= 32'b0;
+        end else if (flush) begin
+            pf_wb_flush_r <= 1'b1;
+            flush_addr_reg <= wb_flush_addr;
+        end else if (inst_sram_addr_ok && ~cancel && if_allowin) begin
+            pf_wb_flush_r <= 1'b0;
+            flush_addr_reg <= 32'b0;
         end
     end
     //地址信息
@@ -118,22 +109,6 @@ module IF (
             br_target_reg <= 32'b0;
         end 
     end
-    always @(posedge clk ) begin
-        if (~resetn) begin
-            pf_entaddr_reg <= 32'b0;
-            pf_retaddr_reg <= 32'b0;
-        end 
-        else if (wb_exc) begin
-            pf_entaddr_reg <= exc_entaddr;
-        end 
-        else if (ertn_flush) begin
-            pf_retaddr_reg <= exc_retaddr;
-        end 
-        else if (inst_sram_addr_ok && if_allowin && ~cancel)begin
-            pf_entaddr_reg <= 32'b0;
-            pf_retaddr_reg <= 32'b0;
-        end
-    end
     //向指令存储器发送申请
     assign inst_sram_req = pf_valid && if_allowin && !cancel;//add
     assign inst_sram_addr = pf_nextpc   ;
@@ -143,13 +118,11 @@ module IF (
     assign inst_sram_wr    = 1'b0       ;//don't write
     reg     cancel;
     always @(posedge clk ) begin
-        if(~resetn)begin
+        if (~resetn) begin
             cancel <= 1'b0;
-        end
-        else if(inst_sram_req && (wb_exc||ertn_flush||(br_stall&&inst_sram_addr_ok)))begin
+        end else if (inst_sram_req && (flush | (br_stall && inst_sram_addr_ok))) begin
             cancel <= 1'b1;
-        end
-        else if(inst_sram_data_ok)begin
+        end else if (inst_sram_data_ok) begin
             cancel <= 1'b0;
         end
     end
@@ -174,21 +147,16 @@ module IF (
     //控制信号
     reg             if_exc_reg;
     reg             if_ertn_reg;
-    always @(posedge clk) begin
-        if (~resetn) begin
-            if_exc_reg <= 1'b0;
-            if_ertn_reg <= 1'b0;
-        end 
-        else if (wb_exc) begin
-            if_exc_reg <= 1'b1;
-        end 
-        else if (ertn_flush) begin
-            if_ertn_reg <= 1'b1;
-        end 
-        else if (if_allowin && pf_if_valid)begin
-            if_exc_reg <= 1'b0;
-            if_ertn_reg <= 1'b0;
-        end 
+    always @(posedge clk ) begin
+        if(~resetn)begin
+            if_wb_flush_r<=1'b0;
+        end
+        else if (flush) begin
+            if_wb_flush_r<=1'b1;
+        end
+        else if (pf_if_valid && if_allowin)begin
+            if_wb_flush_r<=1'b0;
+        end
     end
     //接preIF
     reg [31:0]  if_pc_reg;
@@ -212,11 +180,12 @@ module IF (
     assign if_exc_type[`TYPE_INT]  = 1'b0;
     //取指
     reg         buffer_valid;
+    reg         if_wb_flush_r;
     wire        is_ertn_exc;
     reg [31:0]  buffer;
     wire [31:0] if_inst;
     assign  if_inst = buffer_valid ? buffer : inst_sram_rdata;
-    assign is_ertn_exc = wb_exc | ertn_flush | if_ertn_reg | if_exc_reg;
+    assign is_ertn_exc = flush|if_wb_flush_r;
     always @(posedge clk ) begin
         if(~resetn)begin
             buffer_valid <= 1'b0;

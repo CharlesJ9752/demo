@@ -2,14 +2,14 @@
     //buses
     `define IF_ID_BUS_WDTH 70
     `define ID_IF_BUS_WDTH 34
-    `define ID_EXE_BUS_WDTH 308   //lzc: add 2 bits for [ds_rdcn_en] and [ds_rdcn_sel]
+    `define ID_EXE_BUS_WDTH 351   //+43
     `define WB_ID_BUS_WDTH 38
-    `define EXE_MEM_BUS_WDTH 191
-    `define MEM_WB_BUS_WDTH 188
+    `define EXE_MEM_BUS_WDTH 196//+5
+    `define MEM_WB_BUS_WDTH 198//+10
     `define EXE_WR_BUS_WDTH 39
     `define MEM_WR_BUS_WDTH 39
-    `define EXE_CSR_BLK_BUS_WDTH 16
-    `define MEM_CSR_BLK_BUS_WDTH 16
+    `define EXE_CSR_BLK_BUS_WDTH 17
+    `define MEM_CSR_BLK_BUS_WDTH 17
     `define WB_CSR_BLK_BUS_WDTH 16
     //csr
     // exp12 csrs
@@ -47,6 +47,14 @@
     `define CSR_EENTRY_VA 31:6
     `define CSR_SAVE_DATA 31:0
 
+    //CSR for TLB
+    `define CSR_TLBIDX          14'h010
+    `define CSR_TLBEHI          14'h011
+    `define CSR_TLBELO0         14'h012
+    `define CSR_TLBELO1         14'h013
+    `define CSR_ASID            14'h018
+    `define CSR_TLBRENTRY       14'h088
+
     //exc types
     `define NUM_TYPES   6
     `define TYPE_SYS    0
@@ -62,6 +70,8 @@
     `define EXC_ECODE_ALE   6'h09
     `define EXC_ECODE_BRK   6'h0C
     `define EXC_ECODE_INE   6'h0D
+    `define ECODE_TLBR      6'h3F
+
     //esubcodes
     `define EXC_ESUBCODE_ADEF   9'h000
     `define CSR_ECFG_LIE    12:0
@@ -76,4 +86,31 @@
     `define CSR_MASK_TCFG   32'hffff_ffff
     `define CSR_MASK_TICLR  32'h0000_0001
     `define CSR_MASK_BADV   32'hffff_ffff
+
+
+    `define CSR_MASK_TLBIDX     32'hbf00_000f//new added for exp18
+    `define CSR_MASK_TLBEHI     32'hffff_e000
+    `define CSR_MASK_TLBELO     32'hffff_ff7f
+    `define CSR_MASK_ASID       32'h0000_03ff
+    `define CSR_MASK_TLBRENTRY  32'hffff_ffc0
+
+    //TLB
+    // TLBIDX
+    `define CSR_TLBIDX_INDEX    3:0
+    `define CSR_TLBIDX_PS       29:24
+    `define CSR_TLBIDX_NE       31
+    // TLBEHI
+    `define CSR_TLBEHI_VPPN     31:13
+    // TLBELO0 TLBELO1
+    `define CSR_TLBELO_V        0
+    `define CSR_TLBELO_D        1
+    `define CSR_TLBELO_PLV      3:2
+    `define CSR_TLBELO_MAT      5:4
+    `define CSR_TLBELO_G        6
+    `define CSR_TLBELO_PPN      31:8
+    // ASID
+    `define CSR_ASID_ASID       9:0
+    // TLBRENTRY
+    `define CSR_TLBRENTRY_PA    31:6
+
 `endif
