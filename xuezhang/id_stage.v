@@ -228,14 +228,17 @@ wire            src_reg2;
 wire        es_csr_we;
 wire        es_eret;
 wire        es_tlbrd;
+wire        es_tlbsrch;
 wire [13:0] es_csr_wnum;
 wire        ms_csr_we;
 wire        ms_eret;
 wire        ms_tlbrd;
+wire        ms_tlbsrch;
 wire [13:0] ms_csr_wnum;
 wire        ws_csr_we;
 wire        ws_eret;
 wire        ws_tlbrd;
+wire        ws_tlbsrch;
 wire [13:0] ws_csr_wnum;
 
 wire csr_blk;
@@ -586,6 +589,15 @@ assign ds_exc_flgs[`EXC_FLG_BRK]  = inst_break;
 // other exc flgs from fs
 assign ds_exc_flgs[`EXC_FLG_ALE]  = fs_to_ds_exc_flgs[`EXC_FLG_ALE];
 assign ds_exc_flgs[`EXC_FLG_ADEF] = fs_to_ds_exc_flgs[`EXC_FLG_ADEF];
+assign ds_exc_flgs[`EXC_FLG_ADEM] = fs_to_ds_exc_flgs[`EXC_FLG_ADEM];
+assign ds_exc_flgs[`EXC_FLG_TLBR_F] = fs_to_ds_exc_flgs[`EXC_FLG_TLBR_F];
+assign ds_exc_flgs[`EXC_FLG_TLBR_M] = fs_to_ds_exc_flgs[`EXC_FLG_TLBR_M];
+assign ds_exc_flgs[`EXC_FLG_PIL]  = fs_to_ds_exc_flgs[`EXC_FLG_PIL];
+assign ds_exc_flgs[`EXC_FLG_PIS]  = fs_to_ds_exc_flgs[`EXC_FLG_PIS];
+assign ds_exc_flgs[`EXC_FLG_PIF]  = fs_to_ds_exc_flgs[`EXC_FLG_PIF];
+assign ds_exc_flgs[`EXC_FLG_PME]  = fs_to_ds_exc_flgs[`EXC_FLG_PME];
+assign ds_exc_flgs[`EXC_FLG_PPE_F] = fs_to_ds_exc_flgs[`EXC_FLG_PPE_F];
+assign ds_exc_flgs[`EXC_FLG_PPE_M] = fs_to_ds_exc_flgs[`EXC_FLG_PPE_M];
 
 // csr insts
 assign ds_csr_we    = inst_csrwr | inst_csrxchg;
@@ -613,33 +625,35 @@ assign csr_num_mask = {32{ds_csr_wnum == `CSR_CRMD  }} & `CSR_MASK_CRMD   |
                           ds_csr_wnum == `CSR_TLBELO1}}& `CSR_MASK_TLBELO |
                       {32{ds_csr_wnum == `CSR_TLBEHI}} & `CSR_MASK_TLBEHI |
                       {32{ds_csr_wnum == `CSR_ASID  }} & `CSR_MASK_ASID   |
-                      {32{ds_csr_wnum == `CSR_TLBRENTRY}} & `CSR_MASK_TLBRENTRY;
+                      {32{ds_csr_wnum == `CSR_TLBRENTRY}} & `CSR_MASK_TLBRENTRY |
+                      {32{ds_csr_wnum == `CSR_DMW0  ||
+                          ds_csr_wnum == `CSR_DMW1  }} & `CSR_MASK_DMW;
 assign ds_csr_wmask = inst_csrxchg ? rj_value : csr_num_mask;
 
 assign csr_rnum = inst_rdcntid_w ? `CSR_TID : ds_inst[23:10];
 
 // RAW for csrs
-assign {es_csr_we, es_eret, es_tlbrd, es_csr_wnum} = es_csr_blk_bus;
-assign {ms_csr_we, ms_eret, ms_tlbrd, ms_csr_wnum} = ms_csr_blk_bus;
-assign {ws_csr_we, ws_eret, ws_csr_wnum} = ws_csr_blk_bus;
+assign {es_csr_we, es_eret, es_tlbsrch, es_csr_wnum} = es_csr_blk_bus;
+assign {ms_csr_we, ms_eret, ms_tlbsrch, ms_csr_wnum} = ms_csr_blk_bus;
+assign {ws_csr_we, ws_eret, ws_tlbsrch, ws_csr_wnum} = ws_csr_blk_bus;
 
 assign csr_blk = ds_csr_re & (es_csr_blk | ms_csr_blk | ws_csr_blk);
-assign es_csr_blk = es_csr_we    &&  csr_rnum == es_csr_wnum && es_csr_wnum != 0 ||
-                    es_eret      &&  csr_rnum == `CSR_CRMD                       ||
-                    inst_ertn    && (es_csr_wnum == `CSR_ERA  || es_csr_wnum == `CSR_PRMD)  ||
-                    inst_tlbsrch && (es_csr_wnum == `CSR_ASID || es_csr_wnum == `CSR_TLBEHI || es_tlbrd);
-assign ms_csr_blk = ms_csr_we    &&  csr_rnum == ms_csr_wnum && ms_csr_wnum != 0 ||
-                    ms_eret      &&  csr_rnum == `CSR_CRMD                       ||
-                    inst_ertn    && (ms_csr_wnum == `CSR_ERA  || ms_csr_wnum == `CSR_PRMD)  ||
-                    inst_tlbsrch && (ms_csr_wnum == `CSR_ASID || ms_csr_wnum == `CSR_TLBEHI || ms_tlbrd);
-assign ws_csr_blk = ws_csr_we &&  csr_rnum == ws_csr_wnum && ws_csr_wnum != 0 ||
-                    ws_eret   &&  csr_rnum == `CSR_CRMD                       ||
-                    inst_ertn && (ws_csr_wnum == `CSR_ERA || ws_csr_wnum == `CSR_PRMD);
+assign es_csr_blk = es_csr_we    &&  csr_rnum == es_csr_wnum  ||
+                    es_eret      &&  csr_rnum == `CSR_CRMD    ||
+                    es_tlbsrch   &&  csr_rnum == `CSR_TLBIDX  ||
+                    inst_tlbsrch && (es_csr_wnum == `CSR_ASID || es_csr_wnum == `CSR_TLBEHI);
+assign ms_csr_blk = ms_csr_we    &&  csr_rnum == ms_csr_wnum  ||
+                    ms_eret      &&  csr_rnum == `CSR_CRMD    ||
+                    ms_tlbsrch   &&  csr_rnum == `CSR_TLBIDX  ||
+                    inst_tlbsrch && (ms_csr_wnum == `CSR_ASID || ms_csr_wnum == `CSR_TLBEHI);
+assign ws_csr_blk = ws_csr_we    &&  csr_rnum == ws_csr_wnum  ||
+                    ws_eret      &&  csr_rnum == `CSR_CRMD    ||
+                    ws_tlbsrch   &&  csr_rnum == `CSR_TLBIDX;
 
 // TLB refetch flg and invtlb op decode
 assign ds_refetch_flg = inst_tlbfill || inst_tlbwr || inst_tlbrd || inst_invtlb ||
-                        ds_csr_we && (ds_csr_wnum == `CSR_CRMD || ds_csr_wnum == `CSR_ASID);
-                        // TODO: ds_csr_wnum == DMW0/1
+                        ds_csr_we && (ds_csr_wnum == `CSR_CRMD || ds_csr_wnum == `CSR_ASID ||
+                                      ds_csr_wnum == `CSR_DMW0 || ds_csr_wnum == `CSR_DMW1);
 assign invtlb_op = rd;
 
 endmodule

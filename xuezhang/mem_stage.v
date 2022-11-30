@@ -25,10 +25,7 @@ module mem_stage(
 
     input                           wb_flush,
     output                          ms_to_es_ls_cancel,
-    output [`MS_CSR_BLK_BUS_WD-1:0] ms_csr_blk_bus,
-
-    input         s1_found,
-    input  [ 3:0] s1_index
+    output [`MS_CSR_BLK_BUS_WD-1:0] ms_csr_blk_bus
 );
 
 reg         wb_flush_r;
@@ -80,8 +77,8 @@ wire        ms_inst_tlbrd;
 wire        ms_inst_tlbwr;
 wire        ms_inst_tlbfill;
 
-wire        ms_tlbsrch_hit = s1_found;
-wire [ 3:0] ms_tlbsrch_hit_index = s1_index;
+wire        ms_tlbsrch_hit;
+wire [ 3:0] ms_tlbsrch_hit_index;
 
 reg [63:0] stable_cnter;
 
@@ -94,6 +91,8 @@ assign {ms_refetch_flg ,
         ms_inst_tlbrd  ,
         ms_inst_tlbwr  ,
         ms_inst_tlbfill,
+        ms_tlbsrch_hit ,
+        ms_tlbsrch_hit_index,
         ms_rdcn_en     ,
         ms_rdcn_sel    ,
         ms_csr_we      ,
@@ -140,8 +139,8 @@ always @(posedge clk) begin
         ms_valid <= es_to_ms_valid;
     end
 
-    if(reset) begin
-        es_to_ms_bus_r  <= `ES_TO_MS_BUS_WD'b0;;
+    if (reset) begin
+        es_to_ms_bus_r  <= `ES_TO_MS_BUS_WD'b0;
     end else if (es_to_ms_valid && ms_allowin) begin
         es_to_ms_bus_r  <= es_to_ms_bus;
     end
@@ -176,17 +175,17 @@ assign load_result = {32{load_byte}} & {{24{load_b_data[ 7] & load_signed}}, loa
                      {32{load_half}} & {{16{load_h_data[15] & load_signed}}, load_h_data} |
                      {32{load_word}} & mem_result;
 
-assign ms_final_result = ms_rdcn_en ? stable_cnter[{ms_rdcn_sel, 5'b0}+:32] :
-                         ms_exc_flgs[`EXC_FLG_ALE] ? ms_alu_result :
-                         ms_res_from_mul           ? mul_result    :
-                         ms_res_from_div           ? div_result    :
-                         (|ms_load_op)             ? load_result   :
-                                                     ms_alu_result;
+assign ms_final_result = (|ms_exc_flgs)  ? ms_alu_result :
+                         ms_rdcn_en      ? stable_cnter[{ms_rdcn_sel, 5'b0}+:32] :
+                         ms_res_from_mul ? mul_result    :
+                         ms_res_from_div ? div_result    :
+                         (|ms_load_op)   ? load_result   :
+                                           ms_alu_result;
 
 assign ms_fwd_blk_bus = {ms_gr_we & ms_to_ws_valid, ((|ms_load_op)) & ms_valid, ms_dest, ms_final_result};
 
 assign ms_to_es_ls_cancel = ((|ms_exc_flgs) | ms_inst_ertn | ms_refetch_flg) & ms_valid;
-assign ms_csr_blk_bus     = {ms_csr_we & ms_valid, ms_inst_ertn & ms_valid, ms_inst_tlbrd & ms_valid, ms_csr_wnum};
+assign ms_csr_blk_bus     = {ms_csr_we & ms_valid, ms_inst_ertn & ms_valid, ms_inst_tlbsrch & ms_valid, ms_csr_wnum};
 
 assign ms_exc_flgs = es_to_ms_exc_flgs;
 

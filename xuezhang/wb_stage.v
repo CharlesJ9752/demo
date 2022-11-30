@@ -27,6 +27,8 @@ module wb_stage(
     output [ 8:0]                   wb_esubcode,
     output [31:0]                   wb_pc,
     output [31:0]                   wb_badvaddr,
+    output                          badv_is_pc,
+    output                          badv_is_mem,
 
     output                          ertn_flush,
 
@@ -153,19 +155,35 @@ assign csr_wval  = ws_csr_wdata;
 assign wb_exc      = (|ws_exc_flgs) & ws_valid;
 assign wb_ecode    = ws_exc_flgs[`EXC_FLG_INT ] ? `ECODE_INT :
                      ws_exc_flgs[`EXC_FLG_ADEF] ? `ECODE_ADE :
+                     ws_exc_flgs[`EXC_FLG_TLBR_F] ? `ECODE_TLBR :
+                     ws_exc_flgs[`EXC_FLG_PIF ] ? `ECODE_PIF :
+                     ws_exc_flgs[`EXC_FLG_PPE_F] ? `ECODE_PPE :
                      ws_exc_flgs[`EXC_FLG_INE ] ? `ECODE_INE :
                      ws_exc_flgs[`EXC_FLG_SYS ] ? `ECODE_SYS :
                      ws_exc_flgs[`EXC_FLG_BRK ] ? `ECODE_BRK :
-                     ws_exc_flgs[`EXC_FLG_ALE ] ? `ECODE_ALE : 6'h00;
-assign wb_esubcode = {9{ws_exc_flgs[`EXC_FLG_ADEF]}} & `ESUBCODE_ADEF;
+                     ws_exc_flgs[`EXC_FLG_ALE ] ? `ECODE_ALE :
+                     ws_exc_flgs[`EXC_FLG_ADEM] ? `ECODE_ADE :
+                     ws_exc_flgs[`EXC_FLG_TLBR_M] ? `ECODE_TLBR :
+                     ws_exc_flgs[`EXC_FLG_PIL ] ? `ECODE_PIL :
+                     ws_exc_flgs[`EXC_FLG_PIS ] ? `ECODE_PIS :
+                     ws_exc_flgs[`EXC_FLG_PPE_M] ? `ECODE_PPE :
+                     ws_exc_flgs[`EXC_FLG_PME ] ? `ECODE_PME : 6'h00;
+assign wb_esubcode = {9{ws_exc_flgs[`EXC_FLG_ADEF]}} & `ESUBCODE_ADEF |
+                     {9{ws_exc_flgs[`EXC_FLG_ADEM]}} & `ESUBCODE_ADEM;
 assign wb_pc = ws_pc;
+assign badv_is_pc = ws_exc_flgs[`EXC_FLG_ADEF]  | ws_exc_flgs[`EXC_FLG_TLBR_F] |
+                    ws_exc_flgs[`EXC_FLG_PPE_F] | ws_exc_flgs[`EXC_FLG_PIF];
 assign wb_badvaddr = ws_final_result;
+assign badv_is_mem = ws_exc_flgs[`EXC_FLG_ALE]    | ws_exc_flgs[`EXC_FLG_ADEM]  |
+                     ws_exc_flgs[`EXC_FLG_TLBR_M] | ws_exc_flgs[`EXC_FLG_PPE_M] |
+                     ws_exc_flgs[`EXC_FLG_PIL]    | ws_exc_flgs[`EXC_FLG_PIS]   |
+                     ws_exc_flgs[`EXC_FLG_PME];
 
 assign ertn_flush = ws_inst_ertn & ws_valid;
 
 assign refetch_flush = ws_refetch_flg & ws_valid;
 
-assign ws_csr_blk_bus = {ws_csr_we & ws_valid, ws_inst_ertn & ws_valid, ws_csr_wnum};
+assign ws_csr_blk_bus = {ws_csr_we & ws_valid, ws_inst_ertn & ws_valid, ws_inst_tlbsrch & ws_valid, ws_csr_wnum};
 
 // X_{n+1} = (5 * X_n + 13) mod 16
 always @ (posedge clk) begin
