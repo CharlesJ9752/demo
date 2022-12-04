@@ -62,6 +62,7 @@ module mycpu_top(
     wire    [`EXE_WR_BUS_WDTH - 1:0]        exe_wr_bus;
     wire    [`MEM_WR_BUS_WDTH - 1:0]        mem_wr_bus;
     //csr
+    
     wire    [13:0]                          csr_waddr;
     wire                                    csr_we;
     wire    [31:0]                          csr_wmask;
@@ -86,15 +87,31 @@ module mycpu_top(
     wire                                    exe_ertn;
     wire    [31:0]                          wb_badvaddr;
     wire                                    ldst_cancel;
-
+    wire                                    badv_is_pc;
+    wire                                    badv_is_mem;
     wire                                    refetch_flush;
 
     wire                                    flush;
     wire [31:0]                             wb_flush_target;
-
+    //csr
+    wire [ 1:0]                             csr_crmd_plv;
+    wire                                    csr_crmd_da;
+    wire                                    csr_crmd_pg;
+    wire [ 1:0]                             csr_crmd_datf;
+    wire [ 1:0]                             csr_crmd_datm;
     wire [ 9:0]                             csr_asid_asid;
     wire [18:0]                             csr_tlbehi_vppn;
     wire [ 3:0]                             csr_tlbidx_index;
+    wire                                    csr_dmw0_plv0;
+    wire                                    csr_dmw0_plv3;
+    wire [ 1:0]                             csr_dmw0_mat;
+    wire [ 2:0]                             csr_dmw0_pseg;
+    wire [ 2:0]                             csr_dmw0_vseg;
+    wire                                    csr_dmw1_plv0;
+    wire                                    csr_dmw1_plv3;
+    wire [ 1:0]                             csr_dmw1_mat;
+    wire [ 2:0]                             csr_dmw1_pseg;
+    wire [ 2:0]                             csr_dmw1_vseg;
 
     wire                                    tlbrd_we;
     wire                                    tlbsrch_we;
@@ -123,6 +140,7 @@ module mycpu_top(
     wire                                    data_sram_addr_ok;
     wire                                    data_sram_data_ok;
     wire [31:0]                             data_sram_rdata;
+    
 
     //模块调用
     AXI_bridge my_AXI_bridge(
@@ -205,8 +223,30 @@ module mycpu_top(
         .inst_sram_wdata    (inst_sram_wdata),
         .inst_sram_addr_ok  (inst_sram_addr_ok),
         .inst_sram_data_ok  (inst_sram_data_ok),
-        .flush           (flush),
-        .wb_flush_addr      (wb_flush_addr)
+        .flush              (flush),
+        .wb_flush_addr      (wb_flush_addr),
+        .s0_va_highbits     ({s0_vppn, s0_va_bit12}),
+        .s0_found           (s0_found),
+        .s0_index           (s0_index),
+        .s0_ppn             (s0_ppn),
+        .s0_ps              (s0_ps),
+        .s0_plv             (s0_plv),
+        .s0_mat             (s0_mat),
+        .s0_d               (s0_d),
+        .s0_v               (s0_v),
+        .csr_crmd_da        (csr_crmd_da),
+        .csr_crmd_pg        (csr_crmd_pg),
+        .csr_crmd_plv       (csr_crmd_plv),
+        .csr_dmw0_plv0      (csr_dmw0_plv0),
+        .csr_dmw0_plv3      (csr_dmw0_plv3),
+        .csr_dmw0_mat       (csr_dmw0_mat),
+        .csr_dmw0_pseg      (csr_dmw0_pseg),
+        .csr_dmw0_vseg      (csr_dmw0_vseg),
+        .csr_dmw1_plv0      (csr_dmw1_plv0),
+        .csr_dmw1_plv3      (csr_dmw1_plv3),
+        .csr_dmw1_mat       (csr_dmw1_mat),
+        .csr_dmw1_pseg      (csr_dmw1_pseg),
+        .csr_dmw1_vseg      (csr_dmw1_vseg)
     );
     ID my_ID (
         .clk                (aclk),
@@ -227,7 +267,7 @@ module mycpu_top(
         .mem_csr_blk_bus    (mem_csr_blk_bus),
         .wb_csr_blk_bus     (wb_csr_blk_bus),
         .csr_has_int        (csr_has_int),
-        .flush           (flush)
+        .flush              (flush)
     );
     EXE my_EXE (
         .clk                (aclk),
@@ -247,14 +287,37 @@ module mycpu_top(
         .data_sram_addr_ok  (data_sram_addr_ok),
         .exe_wr_bus         (exe_wr_bus),
         .exe_csr_blk_bus    (exe_csr_blk_bus),
-        .flush           (flush),
+        .flush              (flush),
         .mem_ertn           (mem_ertn),
         .mem_exc            (mem_exc),
         .ldst_cancel        (ldst_cancel),
         .s1_va_highbits     ({s1_vppn,s1_va_bit12}),
         .s1_asid            (s1_asid),
+        .s1_found           (s1_found),
+        .s1_index           (s1_index),
+        .s1_ppn             (s1_ppn),
+        .s1_ps              (s1_ps),
+        .s1_plv             (s1_plv),
+        .s1_mat             (s1_mat),
+        .s1_d               (s1_d),
+        .s1_v               (s1_v),
         .invtlb_valid       (invtlb_valid),
         .invtlb_op          (invtlb_op),
+        .csr_crmd_da        (csr_crmd_da),
+        .csr_crmd_pg        (csr_crmd_pg),
+        .csr_crmd_plv       (csr_crmd_plv),
+
+        .csr_dmw0_plv0      (csr_dmw0_plv0),
+        .csr_dmw0_plv3      (csr_dmw0_plv3),
+        .csr_dmw0_mat       (csr_dmw0_mat),
+        .csr_dmw0_pseg      (csr_dmw0_pseg),
+        .csr_dmw0_vseg      (csr_dmw0_vseg),
+
+        .csr_dmw1_plv0      (csr_dmw1_plv0),
+        .csr_dmw1_plv3      (csr_dmw1_plv3),
+        .csr_dmw1_mat       (csr_dmw1_mat),
+        .csr_dmw1_pseg      (csr_dmw1_pseg),
+        .csr_dmw1_vseg      (csr_dmw1_vseg),
         .csr_asid_asid      (csr_asid_asid),
         .csr_tlbehi_vppn    (csr_tlbehi_vppn)
 
@@ -275,9 +338,7 @@ module mycpu_top(
         .mem_ertn           (mem_ertn),
         .mem_exc            (mem_exc),
         .ldst_cancel        (ldst_cancel),
-        .flush           (flush),
-        .s1_found           (s1_found),
-        .s1_index           (s1_index)
+        .flush           (flush)
     );
     WB my_WB (
         .clk                (aclk),
@@ -301,7 +362,7 @@ module mycpu_top(
         .ertn_flush         (ertn_flush),
         .wb_csr_blk_bus     (wb_csr_blk_bus),
         .wb_badvaddr        (wb_badvaddr),
-        .refetch_flush      (refetch_flush     ),
+        .refetch_flush      (refetch_flush),
         .r_index            (r_index),
         .tlbrd_we           (tlbrd_we),
         .csr_tlbidx_index   (csr_tlbidx_index),
@@ -311,7 +372,9 @@ module mycpu_top(
         .we                 (we),
         .tlbsrch_we         (tlbsrch_we),
         .tlbsrch_hit        (tlbsrch_hit),
-        .tlbsrch_hit_index  (tlbsrch_hit_index) 
+        .tlbsrch_hit_index  (tlbsrch_hit_index),
+        .badv_is_pc         (badv_is_pc),
+        .badv_is_mem        (badv_is_mem)
     );
     csr my_csr(
         .clk                (aclk),
@@ -331,48 +394,62 @@ module mycpu_top(
         .exc_entaddr        (exc_entaddr),
         .exc_retaddr        (exc_retaddr),
         .wb_badvaddr        (wb_badvaddr),
-        .csr_asid_asid   (csr_asid_asid),
-        .csr_tlbehi_vppn (csr_tlbehi_vppn),
-        .csr_tlbidx_index(csr_tlbidx_index),
-
-        .tlbsrch_we      (tlbsrch_we),
-        .tlbsrch_hit     (tlbsrch_hit),
-        .tlb_hit_index   (tlbsrch_hit_index),
-        .tlbrd_we        (tlbrd_we),
-        .tlbwr_we        (tlbwr_we),
-        .tlbfill_we      (tlbfill_we),
-
-        .r_tlb_e         (r_e),
-        .r_tlb_ps        (r_ps),
-        .r_tlb_vppn      (r_vppn),
-        .r_tlb_asid      (r_asid),
-        .r_tlb_g         (r_g),
-        .r_tlb_ppn0      (r_ppn0),
-        .r_tlb_plv0      (r_plv0),
-        .r_tlb_mat0      (r_mat0),
-        .r_tlb_d0        (r_d0),
-        .r_tlb_v0        (r_v0),
-        .r_tlb_ppn1      (r_ppn1),
-        .r_tlb_plv1      (r_plv1),
-        .r_tlb_mat1      (r_mat1),
-        .r_tlb_d1        (r_d1),
-        .r_tlb_v1        (r_v1),
-
-        .w_tlb_e         (w_e),
-        .w_tlb_ps        (w_ps),
-        .w_tlb_vppn      (w_vppn),
-        .w_tlb_asid      (w_asid),
-        .w_tlb_g         (w_g),
-        .w_tlb_ppn0      (w_ppn0),
-        .w_tlb_plv0      (w_plv0),
-        .w_tlb_mat0      (w_mat0),
-        .w_tlb_d0        (w_d0),
-        .w_tlb_v0        (w_v0),
-        .w_tlb_ppn1      (w_ppn1),
-        .w_tlb_plv1      (w_plv1),
-        .w_tlb_mat1      (w_mat1),
-        .w_tlb_d1        (w_d1),
-        .w_tlb_v1        (w_v1)
+        .csr_asid_asid      (csr_asid_asid),
+        .csr_tlbehi_vppn    (csr_tlbehi_vppn),
+        .csr_tlbidx_index   (csr_tlbidx_index),
+        .tlbsrch_we         (tlbsrch_we),
+        .tlbsrch_hit        (tlbsrch_hit),
+        .tlb_hit_index      (tlbsrch_hit_index),
+        .tlbrd_we           (tlbrd_we),
+        .tlbwr_we           (tlbwr_we),
+        .tlbfill_we         (tlbfill_we),
+        .r_tlb_e            (r_e),
+        .r_tlb_ps           (r_ps),
+        .r_tlb_vppn         (r_vppn),
+        .r_tlb_asid         (r_asid),
+        .r_tlb_g            (r_g),
+        .r_tlb_ppn0         (r_ppn0),
+        .r_tlb_plv0         (r_plv0),
+        .r_tlb_mat0         (r_mat0),
+        .r_tlb_d0           (r_d0),
+        .r_tlb_v0           (r_v0),
+        .r_tlb_ppn1         (r_ppn1),
+        .r_tlb_plv1         (r_plv1),
+        .r_tlb_mat1         (r_mat1),
+        .r_tlb_d1           (r_d1),
+        .r_tlb_v1           (r_v1),
+        .w_tlb_e            (w_e),
+        .w_tlb_ps           (w_ps),
+        .w_tlb_vppn         (w_vppn),
+        .w_tlb_asid         (w_asid),
+        .w_tlb_g            (w_g),
+        .w_tlb_ppn0         (w_ppn0),
+        .w_tlb_plv0         (w_plv0),
+        .w_tlb_mat0         (w_mat0),
+        .w_tlb_d0           (w_d0),
+        .w_tlb_v0           (w_v0),
+        .w_tlb_ppn1         (w_ppn1),
+        .w_tlb_plv1         (w_plv1),
+        .w_tlb_mat1         (w_mat1),
+        .w_tlb_d1           (w_d1),
+        .w_tlb_v1           (w_v1),
+        .badv_is_pc         (badv_is_pc ),
+        .badv_is_mem        (badv_is_mem),
+        .csr_crmd_plv       (csr_crmd_plv),
+        .csr_crmd_da        (csr_crmd_da),
+        .csr_crmd_pg        (csr_crmd_pg),
+        .csr_crmd_datf      (csr_crmd_datf),
+        .csr_crmd_datm      (csr_crmd_datm),
+        .csr_dmw0_plv0      (csr_dmw0_plv0),
+        .csr_dmw0_plv3      (csr_dmw0_plv3),
+        .csr_dmw0_mat       (csr_dmw0_mat),
+        .csr_dmw0_pseg      (csr_dmw0_pseg),
+        .csr_dmw0_vseg      (csr_dmw0_vseg),
+        .csr_dmw1_plv0      (csr_dmw1_plv0),
+        .csr_dmw1_plv3      (csr_dmw1_plv3),
+        .csr_dmw1_mat       (csr_dmw1_mat),
+        .csr_dmw1_pseg      (csr_dmw1_pseg),
+        .csr_dmw1_vseg      (csr_dmw1_vseg)
     );
     //TLB
     tlb #(.TLBNUM(16)) 
@@ -504,8 +581,7 @@ module mycpu_top(
     wire                                r_v1;
 
     wire [31:0] wb_flush_addr;
-
+    assign s0_asid = csr_asid_asid;
     assign flush = wb_exc | ertn_flush | refetch_flush;
-    assign wb_flush_addr = wb_exc     ? exc_entaddr     : refetch_flush ? wb_pc + 32'h4 :
-                             exc_retaddr;
+    assign wb_flush_addr = wb_exc     ? exc_entaddr     : refetch_flush ? wb_pc + 32'h4 : exc_retaddr;
 endmodule

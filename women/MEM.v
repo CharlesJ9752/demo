@@ -21,10 +21,7 @@ module MEM (
     //中断和异常信�?
     input                                   flush,
     output                                  mem_ertn,
-    output                                  ldst_cancel,
-    //tlb
-    input                                   s1_found,
-    input  [ 3:0]                           s1_index
+    output                                  ldst_cancel
 );
 //����
 wire mem_en_block;
@@ -94,7 +91,7 @@ assign mem_en_block=is_load & mem_valid;
     assign {
         mem_refetch_flg, mem_inst_tlbsrch, 
         mem_inst_tlbrd, mem_inst_tlbwr,
-        mem_inst_tlbfill,
+        mem_inst_tlbfill,mem_tlbsrch_hit,mem_tlbsrch_hit_idx,
         //new add
         mem_csr_we,mem_csr_waddr,mem_csr_wmask,
          mem_csr_wdata,mem_inst_ertn,exe_exc_type,
@@ -139,6 +136,10 @@ assign mem_en_block=is_load & mem_valid;
                             {32{inst_ld_h | inst_ld_hu}} & half_xtnd |
                             {32{inst_ld_w             }} & word      ;
 
+
+
+            //可能有问题
+
     assign  mem_final_result =  mem_exc_type[`TYPE_ALE] ?   exe_to_mem_result      ://new added(unsure)
                                 res_from_mem            ?   mem_ld_result   : 
                                                             exe_to_mem_result      ;
@@ -146,7 +147,7 @@ assign mem_en_block=is_load & mem_valid;
 //阻塞和前�?
     assign  mem_en_bypass = mem_valid & mem_gr_we;
     assign  mem_wr_bus = {mem_en_bypass,mem_en_block, mem_dest, mem_final_result};
-    assign  mem_csr_blk_bus= {mem_csr_we & mem_valid, mem_ertn, mem_inst_tlbrd && mem_valid,mem_csr_waddr};
+    assign  mem_csr_blk_bus= {mem_csr_we & mem_valid, mem_ertn, mem_inst_tlbsrch && mem_valid,mem_csr_waddr};
 //中断和异常标�?
     assign mem_exc_type = exe_exc_type;
     assign mem_ertn = mem_valid & mem_inst_ertn;
@@ -164,6 +165,4 @@ assign mem_en_block=is_load & mem_valid;
             flush_r <= 1'b0;
         end
     end
-    assign mem_tlbsrch_hit = s1_found;
-    assign mem_tlbsrch_hit_idx = s1_index;
 endmodule

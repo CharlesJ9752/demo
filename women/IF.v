@@ -19,8 +19,30 @@ module IF (
     input                            inst_sram_data_ok,
     input  [31:0]                    inst_sram_rdata,
     //异常&中断
-    input                           flush,
-    input   [31:0]                  wb_flush_addr
+    input                            flush,
+    input   [31:0]                   wb_flush_addr,
+    input                            csr_crmd_da,
+    input                            csr_crmd_pg,
+    input  [ 1:0]                    csr_crmd_plv,
+    output [19:0]                    s0_va_highbits,
+    input                            s0_found,
+    input  [ 3:0]                    s0_index,
+    input  [19:0]                    s0_ppn,
+    input  [ 5:0]                    s0_ps,
+    input  [ 1:0]                    s0_plv,
+    input  [ 1:0]                    s0_mat,
+    input                            s0_d,
+    input                            s0_v,
+    input                            csr_dmw0_plv0,
+    input                            csr_dmw0_plv3,
+    input [ 1:0]                     csr_dmw0_mat,
+    input [ 2:0]                     csr_dmw0_pseg,
+    input [ 2:0]                     csr_dmw0_vseg,
+    input                            csr_dmw1_plv0,
+    input                            csr_dmw1_plv3,
+    input [ 1:0]                     csr_dmw1_mat,
+    input [ 2:0]                     csr_dmw1_pseg,
+    input [ 2:0]                     csr_dmw1_vseg
 );
 //跳转
     wire                            br_stall;
@@ -111,7 +133,9 @@ module IF (
     end
     //向指令存储器发送申请
     assign inst_sram_req = pf_valid && if_allowin && !cancel;//add
-    assign inst_sram_addr = pf_nextpc   ;
+    assign inst_sram_addr = pf_da ? pf_nextpc :
+                            pf_dmw0_hit ? pf_dmw0_pa : pf_dmw1_hit ? pf_dmw1_pa :
+                            pf_tlb_pa;
     assign inst_sram_size = 2'h2        ;
     assign inst_sram_wstrb = 4'b0       ;
     assign inst_sram_wdata = 32'b0      ;
@@ -126,6 +150,44 @@ module IF (
             cancel <= 1'b0;
         end
     end
+    wire    [`PF_IF_BUS_WDTH - 1:0] pf_if_bus;
+    assign pf_if_bus = {
+        pf_exc_type, pf_nextpc
+    };
+    //exceptions
+    wire    [`NUM_TYPES - 1:0] pf_exc_type;
+    assign pf_exc_type[`TYPE_ALE]  = 1'b0;
+    assign pf_exc_type[`TYPE_BRK]  = 1'b0;
+    assign pf_exc_type[`TYPE_INE]  = 1'b0;
+    assign pf_exc_type[`TYPE_INT]  = 1'b0;
+    assign pf_exc_type[`TYPE_ADEM] = 1'b0;
+    assign pf_exc_type[`TYPE_TLBR_F] = pf_tlb_trans & ~s0_found;
+    assign pf_exc_type[`TYPE_TLBR_M] = 1'b0;
+    assign pf_exc_type[`TYPE_PIL]  = 1'b0;
+    assign pf_exc_type[`TYPE_PIS]  = 1'b0;
+    assign pf_exc_type[`TYPE_SYS]  = 1'b0;
+    assign pf_exc_type[`TYPE_ADEF] = (|pf_nextpc[1:0]) | (pf_nextpc[31] & csr_crmd_plv == 2'd3);
+    assign pf_exc_type[`TYPE_PIF]  = pf_tlb_trans & ~s0_v;
+    assign pf_exc_type[`TYPE_PME]  = 1'b0;
+    assign pf_exc_type[`TYPE_PPE_F] = pf_tlb_trans & (csr_crmd_plv > s0_plv);
+    assign pf_exc_type[`TYPE_PPE_M] = 1'b0;
+    //虚实地址转换
+    wire    pf_da;
+    wire    pf_dmw0_hit;
+    wire    pf_dmw1_hit;
+    wire    pf_tlb_trans;
+    wire    [31:0]  pf_dmw0_pa;
+    wire    [31:0]  pf_dmw1_pa;
+    wire    [31:0]  pf_tlb_pa;
+    assign s0_va_highbits = pf_nextpc[31:12];
+    assign pf_tlb_trans = ~pf_da & ~pf_dmw0_hit & ~pf_dmw1_hit;
+    assign pf_da = csr_crmd_da & ~csr_crmd_pg;
+    assign pf_dmw0_hit = pf_nextpc[31:29] == csr_dmw0_vseg && (csr_crmd_plv == 2'd0 && csr_dmw0_plv0 || csr_crmd_plv == 2'd3 && csr_dmw0_plv3);
+    assign pf_dmw1_hit = pf_nextpc[31:29] == csr_dmw1_vseg && (csr_crmd_plv == 2'd0 && csr_dmw1_plv0 || csr_crmd_plv == 2'd3 && csr_dmw1_plv3);
+    assign pf_tlb_pa = s0_ps == 6'd22 ? {s0_ppn[19:10], pf_nextpc[21:0]} : {s0_ppn, pf_nextpc[11:0]};
+    assign pf_dmw0_paddr = {csr_dmw0_pseg, pf_nextpc[28:0]};
+    assign pf_dmw1_paddr = {csr_dmw1_pseg, pf_nextpc[28:0]};
+
 
 
 //IF阶段，完成取指，传递给下个ID阶段
@@ -159,25 +221,21 @@ module IF (
         end
     end
     //接preIF
-    reg [31:0]  if_pc_reg;
+    reg [`PF_IF_BUS_WDTH - 1:0]  pf_if_bus_vld;
     always @(posedge clk ) begin
         if(~resetn)begin
-            if_pc_reg<=32'b0;
+            pf_if_bus_vld<=`PF_IF_BUS_WDTH'b0;
         end
         else if(pf_if_valid & if_allowin)begin
-            if_pc_reg <= pf_nextpc;
+            pf_if_bus_vld <= pf_if_bus;
         end
     end
     wire [31:0] if_pc;
-    assign  if_pc = if_pc_reg;
+    wire [`NUM_TYPES - 1:0] from_pf_exc_type;
+    assign  {from_pf_exc_type,if_pc} = pf_if_bus_vld;
     //中断和异常
-    wire [5:0]  if_exc_type;
-    assign if_exc_type[`TYPE_ADEF] = |if_pc[1:0];
-    assign if_exc_type[`TYPE_SYS]  = 1'b0;
-    assign if_exc_type[`TYPE_ALE]  = 1'b0;
-    assign if_exc_type[`TYPE_BRK]  = 1'b0;
-    assign if_exc_type[`TYPE_INE]  = 1'b0;
-    assign if_exc_type[`TYPE_INT]  = 1'b0;
+    wire [`NUM_TYPES - 1:0]  if_exc_type;
+    assign if_exc_type = from_pf_exc_type;
     //取指
     reg         buffer_valid;
     reg         if_wb_flush_r;

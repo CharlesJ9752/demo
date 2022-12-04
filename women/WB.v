@@ -28,6 +28,10 @@ module WB (
 
     output  [31:0]                          wb_badvaddr,
     //new
+
+    output                          badv_is_pc,
+    output                          badv_is_mem,
+
     output                                  refetch_flush,
     output [ 3:0]                           r_index,
     output                                  tlbrd_we,
@@ -55,8 +59,8 @@ module WB (
     wire    [ 31:0]                         rf_wdata;
     wire    [  4:0]                         wb_dest;
     //中断和异常标�?
-    wire    [  5:0]                         mem_exc_type;
-    wire    [  5:0]                         wb_exc_type;
+    wire    [`NUM_TYPES - 1:0]                         mem_exc_type;
+    wire    [`NUM_TYPES - 1:0]                         wb_exc_type;
 //控制信号的赋�?
     assign wb_ready_go = 1'b1;
     assign wb_allowin = wb_ready_go | ~wb_valid;
@@ -100,20 +104,41 @@ module WB (
     wire [31:0]         wb_csr_wmask;
     wire                wb_inst_ertn;
     assign wb_exc = wb_valid & (|wb_exc_type);
-    assign wb_ecode    =    {6{wb_exc_type[`TYPE_ADEF]}} & `EXC_ECODE_ADE|
-                            {6{wb_exc_type[`TYPE_BRK ]}} & `EXC_ECODE_BRK|
-                            {6{wb_exc_type[`TYPE_INE ]}} & `EXC_ECODE_INE|
-                            {6{wb_exc_type[`TYPE_INT ]}} & `EXC_ECODE_INT|
-                            {6{wb_exc_type[`TYPE_ALE ]}} & `EXC_ECODE_ALE|
-                            {6{wb_exc_type[`TYPE_SYS ]}} & `EXC_ECODE_SYS;//NEW ADDED!
+    assign wb_ecode    =    wb_exc_type[`TYPE_INT ]   ? `EXC_ECODE_INT :
+                            wb_exc_type[`TYPE_ADEF]   ? `EXC_ECODE_ADE :
+                            wb_exc_type[`TYPE_TLBR_F] ? `EXC_ECODE_TLBR :
+                            wb_exc_type[`TYPE_PIF ]   ? `EXC_ECODE_PIF :
+                            wb_exc_type[`TYPE_PPE_F]  ? `EXC_ECODE_PPE :
+                            wb_exc_type[`TYPE_INE ]   ? `EXC_ECODE_INE :
+                            wb_exc_type[`TYPE_SYS ]   ? `EXC_ECODE_SYS :
+                            wb_exc_type[`TYPE_BRK ]   ? `EXC_ECODE_BRK :
+                            wb_exc_type[`TYPE_ALE ]   ? `EXC_ECODE_ALE :
+                            wb_exc_type[`TYPE_ADEM]   ? `EXC_ECODE_ADE :
+                            wb_exc_type[`TYPE_TLBR_M] ? `EXC_ECODE_TLBR :
+                            wb_exc_type[`TYPE_PIL ]   ? `EXC_ECODE_PIL :
+                            wb_exc_type[`TYPE_PIS ]   ? `EXC_ECODE_PIS :
+                            wb_exc_type[`TYPE_PPE_M]  ? `EXC_ECODE_PPE :
+                            wb_exc_type[`TYPE_PME ]  ? `EXC_ECODE_PME : 6'b0;
+                            
+                            
+                            
+                            
+                            //NEW ADDED!
 
-    assign wb_esubcode = {9{wb_exc_type[`TYPE_ADEF]}} & `EXC_ESUBCODE_ADEF;//NEW ADDED!
+    assign wb_esubcode = {9{wb_exc_type[`TYPE_ADEF]}} & `EXC_ESUBCODE_ADEF |
+                         {9{wb_exc_type[`TYPE_ADEM]}} & `EXC_ESUBCODE_ADEM   ;//NEW ADDED!
     assign ertn_flush = wb_inst_ertn & wb_valid;
-    assign wb_csr_blk_bus = {wb_csr_we & wb_valid, ertn_flush, wb_csr_waddr};
+    assign wb_csr_blk_bus = {wb_csr_we & wb_valid, ertn_flush, wb_inst_tlbsrch & wb_valid, wb_csr_waddr};
     assign csr_wmask = wb_csr_wmask;
     assign csr_we    = wb_csr_we & wb_valid & ~wb_exc;
     assign csr_waddr  = wb_csr_waddr;
     assign csr_wdata  = wb_csr_wdata;
+    assign badv_is_pc = wb_exc_type[`TYPE_ADEF]  | wb_exc_type[`TYPE_TLBR_F] |
+                        wb_exc_type[`TYPE_PPE_F] | wb_exc_type[`TYPE_PIF];
+    assign badv_is_mem = wb_exc_type[`TYPE_ALE]    | wb_exc_type[`TYPE_ADEM]  |
+                         wb_exc_type[`TYPE_TLBR_M] | wb_exc_type[`TYPE_PPE_M] |
+                         wb_exc_type[`TYPE_PIL]    | wb_exc_type[`TYPE_PIS]   |
+                         wb_exc_type[`TYPE_PME];
 //连接debug
     assign  debug_wb_pc = wb_pc;
     assign  debug_wb_rf_we = {4{rf_we}};

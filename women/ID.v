@@ -115,7 +115,7 @@ module ID (
             if_id_bus_vld <= if_id_bus;
         end
     end
-    wire    [5:0]   if_exc_type;
+    wire    [`NUM_TYPES - 1:0]   if_exc_type;
     assign {
         if_exc_type, id_pc, id_inst
     } = if_id_bus_vld;
@@ -524,7 +524,8 @@ module ID (
                                 id_csr_waddr == `CSR_TLBELO1}} & `CSR_MASK_TLBELO |
                             {32{id_csr_waddr == `CSR_TLBEHI}} & `CSR_MASK_TLBEHI |
                             {32{id_csr_waddr == `CSR_ASID  }} & `CSR_MASK_ASID   |
-                            {32{id_csr_waddr == `CSR_TLBRENTRY}} & `CSR_MASK_TLBRENTRY;
+                            {32{id_csr_waddr == `CSR_TLBRENTRY}} & `CSR_MASK_TLBRENTRY |
+                            {32{id_csr_waddr == `CSR_DMW0  || id_csr_waddr == `CSR_DMW1  }} & `CSR_MASK_DMW;
 
 
 //�жϺ��쳣��־
@@ -540,9 +541,17 @@ module ID (
     inst_mulh_wu | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu |
     inst_st_b | inst_st_h | inst_syscall | inst_csrrd | inst_csrwr | inst_csrxchg | inst_ertn | inst_break |
     inst_rdcntid_w | inst_rdcntvl_w | inst_rdcntvh_w | inst_mod_w | inst_mod_wu | inst_div_w | inst_div_wu |
-    inst_invtlb | inst_tlbrd | inst_tlbwr | inst_tlbfill | inst_tlbsrch) | (inst_invtlb && (invtlb_op > 5'b00110)))
-    &~id_exc_type[`TYPE_ADEF];
+    inst_invtlb | inst_tlbrd | inst_tlbwr | inst_tlbfill | inst_tlbsrch) | (inst_invtlb && (invtlb_op > 5'b00110)));
     assign  id_exc_type[`TYPE_INT]=csr_has_int;
+    assign id_exc_type[`TYPE_ADEM] = if_exc_type[`TYPE_ADEM];
+    assign id_exc_type[`TYPE_TLBR_F] = if_exc_type[`TYPE_TLBR_F];
+    assign id_exc_type[`TYPE_TLBR_M] = if_exc_type[`TYPE_TLBR_M];
+    assign id_exc_type[`TYPE_PIL]  = if_exc_type[`TYPE_PIL];
+    assign id_exc_type[`TYPE_PIS]  = if_exc_type[`TYPE_PIS];
+    assign id_exc_type[`TYPE_PIF]  = if_exc_type[`TYPE_PIF];
+    assign id_exc_type[`TYPE_PME]  = if_exc_type[`TYPE_PME];
+    assign id_exc_type[`TYPE_PPE_F] = if_exc_type[`TYPE_PPE_F];
+    assign id_exc_type[`TYPE_PPE_M] = if_exc_type[`TYPE_PPE_M];
     /**new added**/
 //add
 //exp18 add
